@@ -1,27 +1,48 @@
+from symtable import Class
+
 from django.db import models
 
 # Creation des  models.
 from django.db import models
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.validators import EmailValidator
 from django_countries.fields import CountryField
 
 
 # MODULE 1 : GESTION DES COMPTES ET AUTHENTIFICATION
 
+class UtilisateurManager(BaseUserManager):
+    def create_user(self, email, first_name, last_name, password=None, **extra_fields):
+        if not email:
+            raise ValueError("L'adresse email est requise")
+        email = self.normalize_email(email)
+        user = self.model(email=email, first_name=first_name, last_name=last_name, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, first_name, last_name, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        return self.create_user(email, first_name, last_name, password, **extra_fields)
+
 class Utilisateur(AbstractUser):
     """
     Modèle qui remplace l'utilisateur par défaut de Django.
     Permet de gérer les rôles spécifiques : Administrateur, Expert, Visiteur, Bureau.
     """
+    username = None # Désactivation du username par défaut de Django
+    email = models.EmailField(unique=True) # L'email sert d'identifiant unique
+    first_name = models.CharField(max_length=150) # Prénom (obligatoire à l'inscription)
+    last_name = models.CharField(max_length=150)  # Nom (obligatoire à l'inscription)
+    
     CHOIX_ROLES = [
         ('ADMIN', 'Administrateur'),
         ('EXPERT', 'Expert'),
-        ('VISITEUR', 'Visiteur'),
         ('BUREAU', 'Bureau d\'étude / Entreprise'),
     ]
     # Champ pour distinguer les types d'utilisateurs sur la plateforme
-    role = models.CharField(max_length=20, choices=CHOIX_ROLES, default='VISITEUR')
+    role = models.CharField(max_length=20, choices=CHOIX_ROLES, default='Utilisateur')
     
     telephone = models.CharField(max_length=20, blank=True, verbose_name="Téléphone")
     pays=CountryField(default='BF', blank=True, verbose_name="Pays de résidence")
@@ -29,27 +50,42 @@ class Utilisateur(AbstractUser):
     date_naissance = models.DateField(null=True, blank=True)
     genre = models.CharField(max_length=1, choices=[('M', 'Masculin'), ('F', 'Féminin')], blank=True)
 
+    USERNAME_FIELD = 'email' # Connexion par email
+    REQUIRED_FIELDS = ['first_name', 'last_name']
+
+    objects = UtilisateurManager()
+
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
-
+##pour definir le nom des tables dans la base de données mysql
+    class Meta:
+        db_table = 'utilisateurs'
+        verbose_name = "Utilisateur"
 
 # MODULE 2 : VEILLE ET COLLECTE AUTOMATISÉE (WEB SCRAPING)[cite: 1]
 
 class SourceScraping(models.Model):
-    """
-    Table de configuration pour le script Python (Module 2)[cite: 1].
-    Elle contient les sites web que le robot doit parcourir.
-    """
     nom = models.CharField(max_length=100, verbose_name="Nom du site source")
     url_racine = models.URLField(verbose_name="Lien de la page d'accueil")
     frequence_maj = models.CharField(max_length=50, help_text="Ex: Toutes les 12 heures")
     est_actif = models.BooleanField(default=True, help_text="Désactiver si le site change de structure")
-
+    
+    # Champ ajouté précédemment pour le suivi du scraping
+    last_scraped = models.DateTimeField(null=True, blank=True, verbose_name="Dernier scraping")
+    
+    # Optionnel : timestamps
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True)
+    
+    class Meta:
+        verbose_name = "Source de scraping"
+        verbose_name_plural = "Sources de scraping"
+    
     def __str__(self):
         return self.nom
 
-
+  
 
 # MODULE 3 : CONSULTATION ET RECHERCHE D'OFFRES
 class AppelOffre(models.Model):
@@ -99,8 +135,8 @@ class AppelOffre(models.Model):
     statut = models.CharField(max_length=50, default="Ouvert")
 
     class Meta:
-        verbose_name = "Appel d'Offre"
-        verbose_name_plural = "Appels d'Offres"
+        db_table = "Appel_Offre"
+        verbose_name = "Appels d\ Offres"
         ordering = ['-date_publication']
 
     def __str__(self):
@@ -124,6 +160,9 @@ class ProfilExpert(models.Model):
     def __str__(self):
         return f"Dossier Expert : {self.utilisateur.last_name}"
 
+    class Meta:
+        db_table = "Profil_Expert"
+        verbose_name = "Profil d'Expert"
 
 class CritereRecherche(models.Model):
     """
@@ -137,6 +176,9 @@ class CritereRecherche(models.Model):
 
     def __str__(self):
         return f"Filtres de {self.utilisateur.username}"
+    class Meta:
+        db_table = "Critere_Recherche"
+        verbose_name = "Critères de Recherche"
 
 
 class InscriptionNewsletter(models.Model):
@@ -148,6 +190,10 @@ class InscriptionNewsletter(models.Model):
 
     def __str__(self):
         return self.email
+    
+    class Meta:
+        db_table = "Inscription_Newsletter"
+        verbose_name = "Inscription à la Newsletter"
 
 
 class Notification(models.Model):
@@ -163,6 +209,8 @@ class Notification(models.Model):
     est_lue = models.BooleanField(default=False)
 
     class Meta:
+        db_table = "Notification"
+        verbose_name = "Notification"
         ordering = ['-date_envoi']
 
 
@@ -181,6 +229,9 @@ class BureauEtude(models.Model):
 
     def __str__(self):
         return self.nom_structure
+    class Meta:
+        db_table = "Bureau_Etude"
+        verbose_name = "Bureau d'étude / Entreprise"
     
     #L'administrateur peut suggerer le CV d'un expert 
     # offres/models.py
@@ -198,3 +249,10 @@ class SuggestionOffre(models.Model):
 
     def __str__(self):
         return f"Suggestion de {self.expert} pour {self.offre}"
+
+    class Meta:
+        db_table = "Suggestion_Offre"
+        verbose_name = "Suggestion d'Expert pour une Offre"
+
+        
+

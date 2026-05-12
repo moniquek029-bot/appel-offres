@@ -1,7 +1,8 @@
+from django import forms
 from django.contrib import admin
 
 # Register your models here.
-from django.contrib import admin
+from django.db import models as django_models
 from django.utils.html import format_html
 from django.contrib.auth.admin import UserAdmin
 from .models import (
@@ -9,6 +10,7 @@ from .models import (
     ProfilExpert, CritereRecherche, 
     InscriptionNewsletter, Notification, BureauEtude
 )
+from .models import Utilisateur
 
 #Pour éviter les redondances et garantir l'intégrité des données, on crée des classes d'administration personnalisées pour chaque modèle avec des permissions spécifiques à chaque rôle d'utilisateur. L'administrateur peut gérer les offres et les utilisateurs, mais ne peut pas modifier les profils d'experts ou de bureaux d'étude qui doivent être créés par les utilisateurs eux-mêmes.
 class ProfilExpertInline(admin.StackedInline):
@@ -21,20 +23,29 @@ class BureauEtudeInline(admin.StackedInline):
     can_delete = False
     verbose_name_plural = 'Détails Structure (Bureau)'
 
-
 # GESTION DES UTILISATEURS (CONTRÔLE DES ACCÈS)
 @admin.register(Utilisateur)
 class CustomUserAdmin(UserAdmin):
     # Liste principale (colonnes)
     list_display = ('last_name', 'first_name', 'email', 'telephone', 'pays', 'role', 'is_active')
     
+    # On force le tri par email c
+    ordering = ('email',)
+
     # Organisation du formulaire de consultation
     fieldsets = (
-        ('Identité', {'fields': ('username', 'last_name', 'first_name', 'email', 'genre', 'date_naissance')}),
+        ('Identité', {'fields': ('last_name', 'first_name', 'email', 'genre', 'date_naissance')}),
         ('Contact & Localisation', {'fields': ('telephone', 'adresse', 'pays')}),
         ('Statut & Rôles', {'fields': ('role', 'is_active', 'is_staff')}),
     )
-    
+
+    # Indispensable quand on n'a pas de username :
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': ('email', 'first_name', 'last_name', 'password'),
+        }),
+    )
     # On ajoute les détails pro directement en bas de la fiche utilisateur
     def get_inlines(self, request, obj=None):
         if obj and obj.role == 'EXPERT':
@@ -49,7 +60,13 @@ class CustomUserAdmin(UserAdmin):
     def has_add_permission(self, request):
         return False 
     
-
+    formfield_overrides = {
+        django_models.DateField: {
+            'widget': forms.SelectDateWidget(
+                years=range(1950, 2040) # Affiche de 1950 à 2040
+            )
+        },
+    }
 # GESTION DES OFFRES (L'ADMINISTRATEUR PEUT PUBLIER DES OFFRES MANUELLEMENT, MAIS NE PEUT PAS MODIFIER LES OFFRES SCRAPÉES POUR GARANTIR L'INTÉGRITÉ DES DONNÉES)
 
 @admin.register(AppelOffre)
@@ -93,9 +110,51 @@ class BureauEtudeAdmin(ReadOnlyMetadataAdmin):
 
 # Les autres modules : SOURCES DE SCRAPING, NEWSLETTER, NOTIFICATIONS, CRITÈRES DE RECHERCHE
 
+# =============================================================================
+# AJOUT : Action personnalisée pour lancer le scraping manuellement
+# =============================================================================
+
 @admin.register(SourceScraping)
 class SourceScrapingAdmin(admin.ModelAdmin):
-    list_display = ('nom', 'url_racine', 'est_actif')
+    list_display = ('nom', 'url_racine', 'frequence_maj', 'est_actif')
+    list_filter = ('est_actif',)
+    search_fields = ('nom', 'url_racine')
+    
+    #  Ajout de l'action personnalisée dans la liste des actions admin
+    actions = ['lancer_scraping_selection']
+    
+    @admin.action(
+        description=" Lancer le scraping pour les sources sélectionnées",
+        permissions=['change']  # Seul un admin avec permission "change" peut lancer
+    )
+    def lancer_scraping_selection(self, request, queryset):
+        """
+        Action admin : Lance immédiatement le scraping pour les sources cochées.
+        Utilise Celery pour exécuter la tâche en arrière-plan.
+        """
+        from offres.scraping.tasks import run_scheduled_scraping_task
+        
+        count = 0
+        for source in queryset:
+            if source.est_actif:
+                # Lance la tâche Celery pour CETTE source uniquement
+                # On passe l'ID de la source pour filtrer dans la tâche
+                run_scheduled_scraping_task.delay(source_id=source.id)
+                count += 1
+        
+        if count > 0:
+            self.message_user(
+                request,
+                f" Scraping lancé pour {count} source(s) active(s). "
+                f"Vérifiez les logs du worker Celery pour suivre l'exécution.",
+                level="success"
+            )
+        else:
+            self.message_user(
+                request,
+                " Aucune source active sélectionnée. Cochez une source avec 'Est actif = Oui'.",
+                level="warning"
+            )
 
 # --- NEWSLETTER : AUCUN AJOUT, AUCUNE MODIFICATION ---
 @admin.register(InscriptionNewsletter)

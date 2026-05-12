@@ -1,6 +1,8 @@
-venv/
-*.pyc
+.venv/
 __pycache__/
-db.sqlite3
+*.pyc
 .env
-media/
+db.sqlite3
+celerybeat-schedule
+*.pkl
+email_preview.html

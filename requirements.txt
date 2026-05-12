@@ -1,0 +1,15 @@
+# requirements.txt
+Django>=5.0,<5.3
+djangorestframework>=3.14
+djangorestframework-simplejwt>=5.3
+django-cors-headers>=4.3
+django-filter>=23.5
+django-countries>=7.5
+mysqlclient>=2.2
+celery>=5.3
+redis>=5.0
+requests>=2.31
+beautifulsoup4>=4.12
+selenium>=4.15
+python-decouple>=3.8  # Pour les variables d'environnement
+Pillow>=10.1  # Pour la gestion des images/fichiers
