@@ -1,76 +1,46 @@
-"""
-offres/scraping/tasks.py
-=================================================================
-TÂCHES CELERY PLANIFIÉES - Conformité CDC Module 2 & 4
-=================================================================
+#IMPORTS STANDARD & DJANGO
+from celery import shared_task
+from django.utils import timezone
+from urllib.parse import urlparse
 
-Ce module contient les tâches asynchrones exécutées en arrière-plan :
+#IMPORTS DES MODELES & UTILITAIRES
+from offres.models import SourceScraping, AppelOffre
+from offres.scraping.utils import archive_expired_offres
+from offres.services.notifications import check_and_notify_matches
 
-🔹 run_scheduled_scraping_task()  → Scraping automatique des sources actives
-🔹 daily_archive_task()           → Archivage des offres clôturées  
-🔹 daily_alert_matching_task()    → Matching offres ↔ critères experts + notifications
-
-Exécution : Gérée par Celery Beat selon le planning défini dans settings.py
-"""
-
-# =============================================================================
-# IMPORTS STANDARD & DJANGO
-# =============================================================================
-from celery import shared_task                    # Décorateur pour créer des tâches Celery
-from django.utils import timezone                 # Gestion des dates/fuseaux horaires Django
-from urllib.parse import urlparse                 # Pour normaliser les URLs des sources
-
-# =============================================================================
-# IMPORTS DES MODÈLES
-# =============================================================================
-from offres.models import SourceScraping, AppelOffre  # Modèles Django pour accéder à la BDD
-
-# =============================================================================
-# IMPORTS LOCAUX (modules de notre projet)
-# =============================================================================
-from offres.scraping.utils import archive_expired_offres  # Fonction d'archivage auto
-from offres.services.notifications import check_and_notify_matches  # Matching + emails
-
-# =============================================================================
 # IMPORTS DES PARSERS (un par site source)
 # =============================================================================
-#  Chaque parser est un fichier dédié dans offres/scraping/parsers/
-# Pour ajouter un nouveau site : créer son parser + l'importer ici
-from offres.scraping.parsers.template import TemplateSiteParser  # Parser générique de secours
-from offres.scraping.parsers.j360_burkina import J360BurkinaParser 
- # Parser spécifique pour J360 Burkina Faso
-#from offres.scraping.parsers.j360_selenium import J360AppSeleniumParser
-from offres.scraping.parsers.j360_mock import J360MockParser  # Parser de démonstration avec données mockées
+from offres.scraping.parsers.template import TemplateSiteParser
+from offres.scraping.parsers.j360_burkina import J360BurkinaParser
+from offres.scraping.parsers.j360_mock import J360MockParser
+from offres.scraping.parsers.joffres_parser import JoffresParser  # ✅ Nom corrigé
+from offres.scraping.parsers.agetib_parser import AgetibParser
+from offres.scraping.parsers.cci_bf_parser import CCIBFParser  # ✅ Commentaire complété
 
-import logging  # Pour tracer l'exécution dans les logs
-
-logger = logging.getLogger(__name__)  # Initialise le logger pour ce module
+import logging
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# REGISTRE DES PARSERS : URL → Classe Parser
-# =============================================================================
-# Ce dictionnaire fait le lien entre l'URL d'une source (configurée dans l'admin)
-# et la classe Python qui sait extraire les données de ce site précis.
-# 
-#  Avantage CDC : Modularité. Pour ajouter un nouveau site :
-#   1. Créer offres/scraping/parsers/nouveau_site.py
-#   2. Importer la classe ci-dessus
-#   3. Ajouter une ligne ici : "https://nouveau-site.bf": NouveauSiteParser
+# REGISTRE DES PARSERS : URL normalisée -> Classe Parser
 # =============================================================================
 PARSER_REGISTRY = {
-    # Sites burkinabè → Parser dédié
-    "https://www.armp.bf": J360BurkinaParser,
-    "https://www.j360.info/appels-d-offres/afrique/burkina-faso/": J360BurkinaParser,
+    # J360
     "https://www.j360.info/appels-d-offres/afrique/burkina-faso": J360BurkinaParser,
-    "https://app.j360.info": J360MockParser,  # Site SPA + auth → Selenium
-    ""
-    #"https://app.j360.info/": J360AppSeleniumParser,  # Site SPA + auth → Selenium
-    #"https://app.j360.info/#/my-monitoring": J360AppSeleniumParser,  # Site SPA + auth → Selenium
-    #"https://app.j360.info/#/demo": J360MockParser,  # Site de démonstration avec données mockées
-
-    # Fallback : si l'URL n'est pas dans la liste, on utilise le parser générique
-    # (à retirer en production pour plus de contrôle)
+    "https://app.j360.info": J360MockParser,
+    
+    # Joffres
+    "https://www.joffres.net/les_appeloffre/filtre": JoffresParser,
+    
+    # Agetib
+    "https://www.agetib.net/appels-offres": AgetibParser,
+    "https://www.agetib.net/appels-d-offres": AgetibParser,
+    
+    # CCI-BF
+    "https://www.cci-bf.net/appels-offres": CCIBFParser,
+    "https://www.cci-bf.net/appels-d-offres": CCIBFParser,
+    
+    # Fallback
     "default": TemplateSiteParser,
 }
 

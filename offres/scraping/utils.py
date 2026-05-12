@@ -52,3 +52,4 @@ def archive_expired_offres():
     count = AppelOffre.objects.filter(statut="Ouvert", date_cloture__lt=today).update(statut="Clôturé")
     print(f" {count} offres archivées automatiquement (date de clôture dépassée).")
     return count
+
