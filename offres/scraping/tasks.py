@@ -13,9 +13,9 @@ from offres.services.notifications import check_and_notify_matches
 from offres.scraping.parsers.template import TemplateSiteParser
 from offres.scraping.parsers.j360_burkina import J360BurkinaParser
 from offres.scraping.parsers.j360_mock import J360MockParser
-from offres.scraping.parsers.joffres_parser import JoffresParser  # ✅ Nom corrigé
+from offres.scraping.parsers.joffres_parser import JoffresParser  
 from offres.scraping.parsers.agetib_parser import AgetibParser
-from offres.scraping.parsers.cci_bf_parser import CCIBFParser  # ✅ Commentaire complété
+from offres.scraping.parsers.globaltenders_parser import GlobalTendersParser  
 
 import logging
 logger = logging.getLogger(__name__)
@@ -36,9 +36,9 @@ PARSER_REGISTRY = {
     "https://www.agetib.net/appels-offres": AgetibParser,
     "https://www.agetib.net/appels-d-offres": AgetibParser,
     
-    # CCI-BF
-    "https://www.cci-bf.net/appels-offres": CCIBFParser,
-    "https://www.cci-bf.net/appels-d-offres": CCIBFParser,
+    # GlobalTenders
+    "https://www.globaltenders.com": GlobalTendersParser,
+    "https://www.globaltenders.com/appels-d-offres": GlobalTendersParser,
     
     # Fallback
     "default": TemplateSiteParser,
