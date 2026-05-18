@@ -5,90 +5,90 @@ Source : https://www.joffres.net/les_appeloffre/filtre
 """
 
 import logging
+import requests
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from ..base import BaseScraper
 from ..utils import clean_text
-from datetime import date  
 
 logger = logging.getLogger(__name__)
 
 class JoffresParser(BaseScraper):
     """Parser pour joffres.net - Version mock pour démo + template réel."""
     
+    def fetch_and_parse(self):
+        """ Télécharge la page HTML et retourne un objet BeautifulSoup."""
+        try:
+            logger.info(f"Téléchargement de {self.source_url}")
+            # Headers pour simuler un navigateur réel et éviter les blocages
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            response = requests.get(self.source_url, headers=headers, timeout=10)
+            response.raise_for_status()
+            return BeautifulSoup(response.text, 'html.parser')
+        except Exception as e:
+            logger.error(f"❌ Erreur de téléchargement : {e}")
+            return None
+    
     def parse(self, soup: BeautifulSoup = None):
-        """
-        Extrait les offres depuis la page HTML.
-        NOTE : Les sélecteurs CSS ci-dessous sont des exemples.
-        À adapter après inspection du HTML réel de joffres.net.
-        """
+        """Extrait les offres depuis la page HTML."""
         offers = []
         
-        # 🎭 MODE MOCK POUR DÉMO (à retirer en production)
+        # 🎭 MODE MOCK POUR DÉMO
         if self.source_url and 'mock' in self.source_url.lower():
-            logger.info("🎭 Joffres : mode mock activé pour démo")
+            logger.info("🎭 Joffres : mode mock activé")
             return self._get_mock_offers()
         
-        # 🔍 MODE RÉEL : À adapter avec les vrais sélecteurs
-        # Exemple de structure à inspecter sur joffres.net :
-        # offer_cards = soup.select('div.offer-card, article.appel-offre, .market-item')
-        
-        offer_cards = []  # ← Remplacer par le vrai sélecteur
+        # 🔍 MODE RÉEL : Sélecteurs à adapter selon le site
+        offer_cards = []  # Remplacez par : soup.select('div.offer-card') etc.
         
         for card in offer_cards:
             try:
-                # Extraire les données (adaptez les sélecteurs)
-                titre = clean_text(card.select_one('h3.titre, h2.title, .offer-title').get_text() or "")
-                if not titre:
-                    continue
-                    
-                organisme = clean_text(card.select_one('.organisme, .buyer, .entity').get_text() or "Non spécifié")
-                
-                # Date de publication (format à adapter)
-                date_text = card.select_one('.date, .publication-date, time').get_text() or ""
-                date_pub = date.today()                
-                # Lien vers le TDR
-                lien = card.select_one('a[href*="detail"], a.titre, .btn-detail')
-                url_tdr = self._build_absolute_url(lien['href']) if lien and lien.has_attr('href') else self.source_url
+                titre = clean_text(card.select_one('h3.titre') and card.select_one('h3.titre').get_text() or "")
+                if not titre: continue
                 
                 offers.append({
                     "titre": titre,
-                    "organisme": organisme,
+                    "organisme": clean_text(card.select_one('.organisme') and card.select_one('.organisme').get_text() or "Non spécifié"),
                     "description": clean_text(card.get_text())[:500],
-                    "date_publication": date_pub,
-                    "date_cloture": date_pub + timedelta(days=30),  # Estimation
-                    "url_tdr": url_tdr,
+                    "date_publication": datetime.now().date(),
+                    "date_cloture": datetime.now().date() + timedelta(days=30),
+                    "url_tdr": self._build_absolute_url(card.select_one('a').get('href', '')),
                     "pays": "BF",
                     "source_nom": "Joffres.net"
                 })
-                
             except Exception as e:
-                logger.warning(f"⚠️ Erreur parsing Joffres : {e}")
+                logger.warning(f"⚠️ Erreur parsing carte : {e}")
                 continue
         
         logger.info(f"✅ Joffres : {len(offers)} offre(s) extraites")
         return offers
     
     def _get_mock_offers(self):
-        """Génère des offres mockées pour la démo."""
+        """Génère des offres mockées avec URLs uniques."""
+        import uuid
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        
         return [
             {
                 "titre": "Appel d'offres pour la fourniture de matériel bureautique",
                 "organisme": "Ministère de l'Économie et des Finances",
-                "description": "Le Ministère lance un appel d'offres pour l'acquisition de matériel informatique et bureautique destiné à l'équipement de ses services centraux et régionaux. La commande porte sur des ordinateurs, imprimantes, scanners et accessoires...",
+                "description": "Le Ministère lance un appel d'offres pour l'acquisition de matériel informatique et bureautique destiné à l'équipement de ses services centraux et régionaux...",
                 "date_publication": datetime.now().date() - timedelta(days=2),
                 "date_cloture": datetime.now().date() + timedelta(days=21),
-                "url_tdr": "https://www.joffres.net/les_appeloffre/detail/12345",
+                "url_tdr": f"https://www.joffres.net/les_appeloffre/detail/{timestamp}-{unique_id}",
                 "pays": "BF",
                 "source_nom": "Joffres.net"
             },
             {
                 "titre": "Recrutement d'un cabinet pour audit financier",
-                "organisme": "Office National de l'Eau et de l'Assainissement (ONEA)",
-                "description": "L'ONEA souhaite recruter un cabinet d'audit indépendant pour la vérification de ses comptes de l'exercice 2025. La mission comprend l'audit de régularité, de sincérité et l'évaluation du contrôle interne...",
+                "organisme": "ONEA",
+                "description": "L'ONEA souhaite recruter un cabinet d'audit indépendant pour la vérification de ses comptes...",
                 "date_publication": datetime.now().date() - timedelta(days=4),
                 "date_cloture": datetime.now().date() + timedelta(days=18),
-                "url_tdr": "https://www.joffres.net/les_appeloffre/detail/12346",
+                "url_tdr": f"https://www.joffres.net/les_appeloffre/detail/{timestamp}-{unique_id}-audit",
                 "pays": "BF",
                 "source_nom": "Joffres.net"
             }
@@ -96,10 +96,10 @@ class JoffresParser(BaseScraper):
     
     def _build_absolute_url(self, relative_url: str) -> str:
         """Convertit une URL relative en URL absolue."""
-        if relative_url.startswith('http'):
-            return relative_url
+        if not relative_url or relative_url.startswith('http'):
+            return relative_url or self.source_url
         base = "https://www.joffres.net"
-        return base + relative_url if relative_url.startswith('/') else f"{base}/{relative_url}"
+        return f"{base}{relative_url}" if relative_url.startswith('/') else f"{base}/{relative_url}"
     
     def run(self):
         """Exécute le scraping complet."""

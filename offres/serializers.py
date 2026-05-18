@@ -1,245 +1,278 @@
-"""
-offres/serializers.py
-Sérialiseurs avec gestion des rôles (Expert, Bureau, Visiteur) et accès différenciés.
-"""
-
+# offres/serializers.py
 from rest_framework import serializers
-from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import AppelOffre, Utilisateur, ProfilExpert, BureauEtude, CritereRecherche, InscriptionNewsletter
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from .models import (
+    Utilisateur, AppelOffre, ProfilExpert, BureauEtude, 
+    CritereRecherche, InscriptionNewsletter, Notification
+)
+
+User = get_user_model()
 
 
 # =============================================================================
-# 1. INSCRIPTION UTILISATEUR - RÔLE SÉLECTIONNABLE
+# AUTHENTIFICATION
 # =============================================================================
+
 class RegisterSerializer(serializers.ModelSerializer):
-    """
-    Inscription avec choix du rôle (Expert, Bureau, Visiteur).
-    Le rôle détermine les étapes de complétion de profil obligatoires.
-    """
-    password = serializers.CharField(write_only=True, required=True, min_length=8, style={'input_type': 'password'})
-    password_confirm = serializers.CharField(write_only=True, required=True, min_length=8, style={'input_type': 'password'})
+    """Serializer d'inscription avec validation des mots de passe"""
+    password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
+    password_confirm = serializers.CharField(write_only=True, required=True)
 
     class Meta:
-        model = Utilisateur
-        fields = ('first_name', 'last_name', 'email', 'password', 'password_confirm', 'telephone', 'pays', 'role')
+        model = User
+        fields = ('email', 'first_name', 'last_name', 'password', 'password_confirm', 'role', 'telephone', 'pays')
         extra_kwargs = {
             'first_name': {'required': True},
             'last_name': {'required': True},
-            'email': {'required': True},
         }
 
-    def validate_role(self, value):
-        """Valide que le rôle choisi est autorisé à l'inscription"""
-        if value not in ['EXPERT', 'BUREAU', 'VISITEUR']:
-            raise serializers.ValidationError("Rôle non autorisé. Choisissez parmi: EXPERT, BUREAU, VISITEUR.")
-        return value
-
     def validate(self, attrs):
-        """Validation globale des données d'inscription"""
-        # Mots de passe correspondants
         if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError({"password_confirm": "Les mots de passe ne correspondent pas."})
-        
-        # Email unique
-        if Utilisateur.objects.filter(email=attrs['email']).exists():
-            raise serializers.ValidationError({"email": "Cet email est déjà utilisé."})
-        
+            raise serializers.ValidationError({"password": "Les mots de passe ne correspondent pas."})
         return attrs
 
     def create(self, validated_data):
-        """Création de l'utilisateur avec le rôle choisi"""
         validated_data.pop('password_confirm')
-        
-        # Hachage automatique du mot de passe via le manager personnalisé
-        user = Utilisateur.objects.create_user(
+        user = User.objects.create_user(
             email=validated_data['email'],
+            password=validated_data['password'],
             first_name=validated_data['first_name'],
             last_name=validated_data['last_name'],
-            password=validated_data['password'],
+            role=validated_data.get('role', 'EXPERT'),
             telephone=validated_data.get('telephone', ''),
-            pays=validated_data.get('pays', 'BF'),
-            role=validated_data.get('role', 'VISITEUR')  # Rôle choisi par l'utilisateur
+            pays=validated_data.get('pays', 'BF')
         )
-        
-        # Création automatique du profil lié au rôle
-        if user.role == 'EXPERT':
-            ProfilExpert.objects.create(utilisateur=user)
-        elif user.role == 'BUREAU':
-            BureauEtude.objects.create(gestionnaire=user)
-        # VISITEUR n'a pas de profil supplémentaire obligatoire
-        
         return user
 
 
-# =============================================================================
-# 2. CONNEXION JWT PERSONNALISÉE
-# =============================================================================
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """Ajoute le rôle et l'état de complétion du profil dans la réponse"""
+    """Login personnalisé avec infos utilisateur + gestion sécurisée des champs spéciaux"""
     
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
         token['email'] = user.email
         token['role'] = user.role
-        token['is_profile_complete'] = cls._is_profile_complete(user)
+        token['first_name'] = user.first_name
+        token['last_name'] = user.last_name
         return token
-
-    @staticmethod
-    def _is_profile_complete(user):
-        """Vérifie si le profil est complet selon le rôle"""
-        if user.role == 'EXPERT':
-            return hasattr(user, 'profil_expert') and user.profil_expert.cv_fichier
-        elif user.role == 'BUREAU':
-            return hasattr(user, 'bureauetude')
-        return True  # Visiteur n'a pas de profil supplémentaire
-
+    
     def validate(self, attrs):
         data = super().validate(attrs)
-        data.update({
-            'user': {
-                'id': self.user.id,
-                'email': self.user.email,
-                'first_name': self.user.first_name,
-                'last_name': self.user.last_name,
-                'role': self.user.role,
-                'is_profile_complete': self._is_profile_complete(self.user),
-            },
-            'message': f'Bonjour {self.user.first_name} ! Connexion réussie.',
-            'redirect_to': self._get_redirect_url(self.user)
-        })
+        user = self.user
+        
+        # ✅ Conversion sécurisée : CountryField → string
+        pays_value = getattr(user, 'pays', None)
+        pays_str = str(pays_value) if pays_value else ''
+        telephone = getattr(user, 'telephone', '') or ''
+        
+        user_data = {
+            'id': user.id,
+            'email': user.email,
+            'nom': f"{user.first_name} {user.last_name}".strip(),
+            'role': user.role,
+            'telephone': telephone,
+            'pays': pays_str,
+        }
+        
+        # Ajout du profil lié si disponible
+        if user.role == 'EXPERT' and hasattr(user, 'profil_expert'):
+            try:
+                user_data['profil'] = ProfilExpertSerializer(user.profil_expert).data
+            except Exception:
+                user_data['profil'] = None
+        elif user.role in ['BUREAU', 'BUREAU_ETUDE'] and hasattr(user, 'bureauetude'):
+            try:
+                user_data['profil'] = BureauEtudeSerializer(user.bureauetude).data
+            except Exception:
+                user_data['profil'] = None
+        
+        data.update({'user': user_data})
         return data
 
-    @staticmethod
-    def _get_redirect_url(user):
-        """Détermine la page de redirection après connexion selon le rôle"""
-        if user.role == 'EXPERT' and not user.profil_expert.cv_fichier:
-            return '/expert/complete-profile'  # Doit uploader son CV
-        elif user.role == 'BUREAU' and not hasattr(user, 'bureauetude'):
-            return '/bureau/complete-profile'  # Doit compléter les infos bureau
-        elif user.role == 'EXPERT':
-            return '/expert/dashboard'
-        elif user.role == 'BUREAU':
-            return '/bureau/dashboard'
-        return '/dashboard'  # Visiteur ou profil complet
 
-
-# =============================================================================
-# 3. PROFIL UTILISATEUR
-# =============================================================================
 class UserSerializer(serializers.ModelSerializer):
+    """Serializer utilisateur avec accès sécurisé aux profils"""
+    nom = serializers.SerializerMethodField()
+    profil = serializers.SerializerMethodField()
+    pays = serializers.SerializerMethodField()
+    
     class Meta:
-        model = Utilisateur
-        fields = ('id', 'email', 'first_name', 'last_name', 'role', 'telephone', 'pays', 'adresse', 'date_naissance', 'genre')
-        read_only_fields = ('id', 'email', 'role')  # Le rôle ne peut être modifié après inscription
+        model = User
+        fields = ('id', 'email', 'first_name', 'last_name', 'nom', 'role', 
+                  'telephone', 'pays', 'date_joined', 'profil')
+        read_only_fields = ('id', 'date_joined')
+    
+    def get_nom(self, obj):
+        return f"{obj.first_name} {obj.last_name}".strip()
+    
+    def get_pays(self, obj):
+        """Convertit CountryField en string JSON-safe"""
+        pays = getattr(obj, 'pays', None)
+        return str(pays) if pays else ''
+    
+    def get_profil(self, obj):
+        """Retourne le profil lié ou None de façon sécurisée"""
+        if obj.role == 'EXPERT' and hasattr(obj, 'profil_expert'):
+            try:
+                return ProfilExpertSerializer(obj.profil_expert).data
+            except Exception:
+                return None
+        elif obj.role in ['BUREAU', 'BUREAU_ETUDE'] and hasattr(obj, 'bureauetude'):
+            try:
+                return BureauEtudeSerializer(obj.bureauetude).data
+            except Exception:
+                return None
+        return None
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """Serializer pour changer le mot de passe"""
+    old_password = serializers.CharField(required=True, write_only=True)
+    new_password = serializers.CharField(required=True, write_only=True, validators=[validate_password])
+    new_password_confirm = serializers.CharField(required=True, write_only=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password_confirm']:
+            raise serializers.ValidationError({"new_password": "Les nouveaux mots de passe ne correspondent pas."})
+        return attrs
+
+    def validate_old_password(self, value):
+        user = self.context['request'].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Mot de passe actuel incorrect.")
+        return value
 
 
 # =============================================================================
-# 4. APPELS D'OFFRES - ACCÈS PUBLIC LIMITÉ
+# APPELS D'OFFRES - ACCÈS DIFFÉRENCIÉ AUX URLs
 # =============================================================================
+
 class AppelOffreSerializer(serializers.ModelSerializer):
-    """
-    Pour les visiteurs non authentifiés : affiche uniquement les métadonnées.
-    Pour les utilisateurs authentifiés : affiche plus de détails.
-    """
-    jours_restants = serializers.SerializerMethodField()
     source_nom = serializers.ReadOnlyField(source='source_origine.nom')
-    # Champ conditionnel : URL complète seulement pour authentifiés
+    jours_restants = serializers.SerializerMethodField()
+    
+    # ✅ url_source : toujours visible
+    url_source = serializers.URLField(read_only=True)
+    
+    # ✅ url_tdr : masquée pour les visiteurs non authentifiés
     url_tdr = serializers.SerializerMethodField()
 
     class Meta:
         model = AppelOffre
-        fields = ('id', 'titre', 'organisme', 'description', 'pays', 'date_publication', 
-                  'date_cloture', 'url_tdr', 'source_nom', 'jours_restants', 'statut')
-        read_only_fields = ('mode_acquisition', 'source_origine', 'date_publication')
-
-    def get_jours_restants(self, obj):
-        from django.utils import timezone
-        delta = obj.date_cloture - timezone.now().date()
-        return max(0, delta.days)
+        fields = (
+            'id', 'titre', 'organisme', 'description', 'pays', 
+            'date_publication', 'date_cloture', 
+            'url_source', 'url_tdr',  # ✅ Les deux URLs
+            'source_nom', 'jours_restants', 'statut', 'mode_acquisition'
+        )
+        read_only_fields = ('id', 'mode_acquisition')
 
     def get_url_tdr(self, obj):
-        """Masque l'URL officielle pour les visiteurs non authentifiés"""
+        """Retourne l'URL TDR uniquement si l'utilisateur est authentifié"""
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.url_tdr
-        return None  # Visiteur non connecté : pas d'accès au lien direct
+        return None
+
+    def get_jours_restants(self, obj):
+        from django.utils import timezone
+        if obj.date_cloture:
+            delta = obj.date_cloture - timezone.now().date()
+            return max(0, delta.days)
+        return None
 
 
 # =============================================================================
-# 5. PROFIL EXPERT (complétion obligatoire)
+# PROFIL EXPERT - CHAMPS VALIDES UNIQUEMENT
 # =============================================================================
+
 class ProfilExpertSerializer(serializers.ModelSerializer):
-    utilisateur = UserSerializer(read_only=True)
+    # ✅ Champs délégués à l'utilisateur (lecture seule)
+    telephone = serializers.SerializerMethodField()
+    pays = serializers.SerializerMethodField()
     
     class Meta:
         model = ProfilExpert
-        fields = '__all__'
-        read_only_fields = ('utilisateur', 'date_mise_a_jour')
-
-    def validate_cv_fichier(self, value):
-        if not value.name.lower().endswith('.pdf'):
-            raise serializers.ValidationError("Seuls les fichiers PDF sont acceptés pour le CV.")
-        if value.size > 5 * 1024 * 1024:  # 5 Mo max
-            raise serializers.ValidationError("Le CV ne doit pas dépasser 5 Mo.")
-        return value
+        fields = [
+            'id', 'utilisateur', 
+            'cv_fichier', 
+            'competences', 
+            'experience', 
+            'disponibilite', 
+            'alerte_active',
+            'date_creation',
+            # Champs délégués (lecture seule)
+            'telephone', 'pays'
+        ]
+        read_only_fields = ['id', 'utilisateur', 'date_creation', 'telephone', 'pays']
+        extra_kwargs = {'cv_fichier': {'required': False}}
+    
+    def get_telephone(self, obj):
+        user = getattr(obj, 'utilisateur', None)
+        return getattr(user, 'telephone', '') if user else ''
+    
+    def get_pays(self, obj):
+        user = getattr(obj, 'utilisateur', None)
+        if user and hasattr(user, 'pays'):
+            pays = user.pays
+            return str(pays) if pays else ''
+        return ''
 
 
 # =============================================================================
-# 6. PROFIL BUREAU D'ÉTUDE (complétion obligatoire)
+# BUREAU D'ÉTUDE - PARALLÈLE À EXPERT
 # =============================================================================
+
 class BureauEtudeSerializer(serializers.ModelSerializer):
-    gestionnaire = UserSerializer(read_only=True)
+    telephone = serializers.SerializerMethodField()
+    pays = serializers.SerializerMethodField()
     
     class Meta:
         model = BureauEtude
-        fields = '__all__'
-        read_only_fields = ('gestionnaire',)
+        fields = [
+            'id', 'gestionnaire',
+            'nom_structure',
+            'cv_fichier',
+            'date_creation',
+            'telephone', 'pays'
+        ]
+        read_only_fields = ['id', 'gestionnaire', 'date_creation', 'telephone', 'pays']
+        extra_kwargs = {'cv_fichier': {'required': False}}
+    
+    def get_telephone(self, obj):
+        user = getattr(obj, 'gestionnaire', None)
+        return getattr(user, 'telephone', '') if user else ''
+    
+    def get_pays(self, obj):
+        user = getattr(obj, 'gestionnaire', None)
+        if user and hasattr(user, 'pays'):
+            pays = user.pays
+            return str(pays) if pays else ''
+        return ''
 
 
 # =============================================================================
-# 7. CRITÈRES DE RECHERCHE & ALERTES (pour Experts)
+# CRITÈRES & NEWSLETTER
 # =============================================================================
+
 class CritereRechercheSerializer(serializers.ModelSerializer):
     class Meta:
         model = CritereRecherche
         fields = '__all__'
-        read_only_fields = ('utilisateur',)
+        read_only_fields = ('id', 'utilisateur')
 
 
-# =============================================================================
-# 8. NEWSLETTER - ACCÈS PUBLIC (VISITEURS NON CONNECTÉS)
-# =============================================================================
 class NewsletterSubscriptionSerializer(serializers.ModelSerializer):
-    """Inscription à la newsletter sans créer de compte"""
     class Meta:
         model = InscriptionNewsletter
-        fields = ('email',)
-    
-    def validate_email(self, value):
-        if InscriptionNewsletter.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Cet email est déjà inscrit à la newsletter.")
-        return value
+        fields = '__all__'
 
 
-# =============================================================================
-# 9. CHANGEMENT DE MOT DE PASSE
-# =============================================================================
-class ChangePasswordSerializer(serializers.Serializer):
-    old_password = serializers.CharField(required=True, write_only=True)
-    new_password = serializers.CharField(required=True, write_only=True, min_length=8)
-    new_password_confirm = serializers.CharField(required=True, write_only=True, min_length=8)
-
-    def validate(self, attrs):
-        if attrs['new_password'] != attrs['new_password_confirm']:
-            raise serializers.ValidationError({"new_password_confirm": "Les mots de passe ne correspondent pas."})
-        validate_password(attrs['new_password'], self.context['user'])
-        if not self.context['user'].check_password(attrs['old_password']):
-            raise serializers.ValidationError({"old_password": "Ancien mot de passe incorrect."})
-        return attrs
-
-    def save(self):
-        self.context['user'].set_password(self.validated_data['new_password'])
-        self.context['user'].save()
-        return self.context['user']
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = '__all__'
+        read_only_fields = ('id', 'envoyee_le')

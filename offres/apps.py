@@ -7,5 +7,5 @@ class OffresConfig(AppConfig):
     name = 'offres'
 
     def ready(self):
-        # Import des signaux ou autres initialisations spécifiques à l'app
+        import offres.signals  # Import des signaux
         pass

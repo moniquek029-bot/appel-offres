@@ -40,7 +40,6 @@ INSTALLED_APPS = [
 
     #Applications tierces pour la gestion des rôles et permissions'
     'rest_framework',
-    'rest_framework.authtoken',
     'rest_framework_simplejwt',
 
 
@@ -200,7 +199,6 @@ STATICFILES_DIRS = (
 )
 
 #CORS configuration pour permettre les requêtes depuis le frontend (React) pendant le développement
-CORS_ALLOW_ALL_ORIGINS=True
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',  # Adresse du frontend React en développement
     'http://127.0.0.1:3000',  # Adresse alternative du frontend React
@@ -209,11 +207,24 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_ALL_CREDENTIALS=True
 
+# Optionnel : headers autorisés
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny', # Permet l'accès libre pendant le développement
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication', # Utilise JWT pour l'authentification
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
     ],

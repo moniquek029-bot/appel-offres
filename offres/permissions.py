@@ -1,46 +1,69 @@
 # offres/permissions.py
 from rest_framework import permissions
-
-class IsProfileComplete(permissions.BasePermission):
-    """Vérifie que l'utilisateur a complété son profil selon son rôle."""
-    def has_permission(self, request, view):
-        if not request.user.is_authenticated:
-            return False
-        if request.user.role == 'EXPERT':
-            return hasattr(request.user, 'profil_expert') and request.user.profil_expert.cv_fichier
-        elif request.user.role == 'BUREAU':
-            return hasattr(request.user, 'bureauetude')
-        return True  # VISITEUR ou ADMIN
+from django.conf import settings
 
 class IsExpert(permissions.BasePermission):
-    """Accès réservé aux Experts avec profil complet"""
+    """
+    Permission réservée aux utilisateurs de rôle EXPERT.
+    Tolère les variations de casse et loggue les échecs en DEBUG.
+    """
+    
     def has_permission(self, request, view):
-        return (request.user.is_authenticated and 
-                request.user.role == 'EXPERT' and 
-                IsProfileComplete().has_permission(request, view))
+        # 1. Doit être authentifié
+        if not request.user or not request.user.is_authenticated:
+            if settings.DEBUG:
+                print(f" Permission refusée : utilisateur non authentifié")
+            return False
+        
+        # 2. Vérifier le rôle (tolère 'EXPERT', 'expert', 'Expert')
+        user_role = getattr(request.user, 'role', None)
+        role_upper = str(user_role).upper() if user_role else None
+        is_expert = role_upper == 'EXPERT'
+        
+        # Debug détaillé en développement
+        if settings.DEBUG:
+            print(f" [IsExpert] Debug:")
+            print(f"    User: {request.user.email if hasattr(request.user, 'email') else request.user}")
+            print(f"    Role brut: '{user_role}'")
+            print(f"    Role upper: '{role_upper}'")
+            print(f"    Is expert: {is_expert}")
+        
+        return is_expert
+
 
 class IsBureau(permissions.BasePermission):
-    """Accès réservé aux Bureaux avec profil complet"""
+    """Permission réservée aux bureaux d'études"""
+    
     def has_permission(self, request, view):
-        return (request.user.is_authenticated and 
-                request.user.role == 'BUREAU' and 
-                IsProfileComplete().has_permission(request, view))
+        if not request.user or not request.user.is_authenticated:
+            return False
+        user_role = getattr(request.user, 'role', None)
+        return user_role and str(user_role).upper() in ['BUREAU', 'BUREAU_ETUDE']
+
 
 class IsAdmin(permissions.BasePermission):
-    """Accès réservé aux Administrateurs"""
+    """Permission réservée aux administrateurs"""
+    
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'ADMIN'
+        return request.user and request.user.is_authenticated and request.user.is_staff
+
 
 class IsAuthenticatedOrReadOnlyPublic(permissions.BasePermission):
-    """Lecture publique autorisée, écriture réservée aux authentifiés."""
+    """
+    Lecture publique, écriture réservée aux authentifiés.
+    Utilisé pour les offres : tout le monde peut consulter, seuls les connectés voient les détails.
+    """
+    
     def has_permission(self, request, view):
+        # Lecture (GET, HEAD, OPTIONS) : toujours autorisé
         if request.method in permissions.SAFE_METHODS:
             return True
-        return request.user.is_authenticated
+        # Écriture : doit être authentifié
+        return request.user and request.user.is_authenticated
+
 
 class IsVisitorOrAuthenticated(permissions.BasePermission):
-    """Permet l'accès public aux offres/newsletter, et privé aux connectés."""
+    """Autorise les visiteurs ET les utilisateurs authentifiés (pour newsletter, etc.)"""
+    
     def has_permission(self, request, view):
-        if view.basename in ['offres', 'newsletter'] and request.method in permissions.SAFE_METHODS:
-            return True
-        return request.user.is_authenticated
+        return True  # Toujours autorisé

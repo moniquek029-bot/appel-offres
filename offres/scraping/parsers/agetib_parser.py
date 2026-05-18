@@ -7,9 +7,14 @@ Source : https://www.agetib.net (ou URL réelle des appels d'offres)
 import logging
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
+from celery import uuid
 from ..base import BaseScraper
 from ..utils import clean_text
 from datetime import date  # 
+import uuid
+from datetime import datetime, timedelta
+    
+
 
 logger = logging.getLogger(__name__)
 
@@ -54,19 +59,24 @@ class AgetibParser(BaseScraper):
         return offers
     
     def _get_mock_offers(self):
-        """Offres mockées pour la démo."""
+        """Offres mockées avec URLs uniques pour Agetib."""
+    
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+    
         return [
-            {
-                "titre": "Travaux de réhabilitation de voiries urbaines à Ouagadougou",
-                "organisme": "AGETIB - Agence d'Exécution des Travaux d'Intérêt Public",
-                "description": "L'AGETIB lance un appel d'offres pour les travaux de réhabilitation de voiries dans les communes de Ouagadougou. Le projet comprend le reprofilage, le drainage et la signalisation sur un linéaire de 15 km...",
-                "date_publication": datetime.now().date() - timedelta(days=1),
-                "date_cloture": datetime.now().date() + timedelta(days=22),
-                "url_tdr": "https://www.agetib.net/appels-offres/detail/voirie-ouaga-2026",
-                "pays": "BF",
-                "source_nom": "Agetib.net"
-            }
-        ]
+        {
+            "titre": "Travaux de réhabilitation de voiries urbaines à Ouagadougou",
+            "organisme": "AGETIB - Agence d'Exécution des Travaux d'Intérêt Public",
+            "description": "L'AGETIB lance un appel d'offres pour les travaux de réhabilitation de voiries dans les communes de Ouagadougou...",
+            "date_publication": datetime.now().date() - timedelta(days=1),
+            "date_cloture": datetime.now().date() + timedelta(days=22),
+            # ✅ URL UNIQUE
+            "url_tdr": f"https://www.agetib.net/appels-offres/detail/voirie-{timestamp}-{unique_id}",
+            "pays": "BF",
+            "source_nom": "Agetib.net"
+        }
+    ]
     
     def _build_url(self, rel: str) -> str:
         base = "https://www.agetib.net"
