@@ -13,22 +13,28 @@ from ..utils import clean_text
 
 logger = logging.getLogger(__name__)
 
+# offres/scraping/parsers/joffres_parser.py
+
 class JoffresParser(BaseScraper):
-    """Parser pour joffres.net - Version mock pour démo + template réel."""
     
-    def fetch_and_parse(self):
-        """ Télécharge la page HTML et retourne un objet BeautifulSoup."""
+    def fetch_html(self, url):
+        """Override pour augmenter le timeout"""
         try:
-            logger.info(f"Téléchargement de {self.source_url}")
-            # Headers pour simuler un navigateur réel et éviter les blocages
+            import requests
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'fr,fr-FR;q=0.8,en;q=0.5',
             }
-            response = requests.get(self.source_url, headers=headers, timeout=10)
+            # ✅ Augmenter le timeout à 30 secondes
+            response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
-            return BeautifulSoup(response.text, 'html.parser')
+            return response.text
+        except requests.Timeout:
+            logger.warning(f"⏰ Timeout pour {url} - utilisation du mode mock")
+            return None
         except Exception as e:
-            logger.error(f"❌ Erreur de téléchargement : {e}")
+            logger.error(f"❌ Erreur fetch: {e}")
             return None
     
     def parse(self, soup: BeautifulSoup = None):

@@ -1,40 +1,26 @@
-"""
-offres/scraping/parsers/agetib_parser.py
-Parser pour Agetib.net - Agence d'Exécution des Travaux d'Intérêt Public
-Source : https://www.agetib.net (ou URL réelle des appels d'offres)
-"""
-
+# offres/scraping/parsers/agetib_parser.py
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from bs4 import BeautifulSoup
-from celery import uuid
 from ..base import BaseScraper
-from ..utils import clean_text
-from datetime import date  # 
-import uuid
-from datetime import datetime, timedelta
-    
-
+from ..utils import clean_text, parse_french_date
 
 logger = logging.getLogger(__name__)
 
 class AgetibParser(BaseScraper):
-    """Parser pour agetib.net - Version mock + template réel."""
+    """Parser pour agetib.net"""
     
     def parse(self, soup: BeautifulSoup = None):
         """Extrait les offres depuis la page HTML."""
         offers = []
         
-        # 🎭 MODE MOCK POUR DÉMO
+        # MODE MOCK POUR DÉMO
         if self.source_url and 'mock' in self.source_url.lower():
             logger.info("🎭 Agetib : mode mock activé")
             return self._get_mock_offers()
         
-        # 🔍 MODE RÉEL : À adapter avec les vrais sélecteurs
-        # Inspecter le HTML de agetib.net pour trouver les bons sélecteurs
-        # Exemple : offer_cards = soup.select('div.tender, article.market, .appel-offre')
-        
-        offer_cards = []  # ← Remplacer par le vrai sélecteur
+        # MODE RÉEL
+        offer_cards = []  # À remplacer par les vrais sélecteurs
         
         for card in offer_cards:
             try:
@@ -46,11 +32,10 @@ class AgetibParser(BaseScraper):
                     "titre": titre,
                     "organisme": "AGETIB - Agence d'Exécution des Travaux d'Intérêt Public",
                     "description": clean_text(card.get_text())[:500],
-                    "date_publication": date.today(),
+                    "date_publication": date.today(),  # ✅ Utilisation correcte de date.today()
                     "date_cloture": date.today() + timedelta(days=25),
                     "url_tdr": self._build_url(card.select_one('a').get('href', '')),
                     "pays": "BF",
-                    "source_nom": "Agetib.net"
                 })
             except Exception as e:
                 logger.warning(f"⚠️ Erreur parsing Agetib : {e}")
@@ -59,24 +44,22 @@ class AgetibParser(BaseScraper):
         return offers
     
     def _get_mock_offers(self):
-        """Offres mockées avec URLs uniques pour Agetib."""
-    
+        """Offres mockées avec URLs uniques."""
+        import uuid
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         unique_id = str(uuid.uuid4())[:8]
-    
+        
         return [
-        {
-            "titre": "Travaux de réhabilitation de voiries urbaines à Ouagadougou",
-            "organisme": "AGETIB - Agence d'Exécution des Travaux d'Intérêt Public",
-            "description": "L'AGETIB lance un appel d'offres pour les travaux de réhabilitation de voiries dans les communes de Ouagadougou...",
-            "date_publication": datetime.now().date() - timedelta(days=1),
-            "date_cloture": datetime.now().date() + timedelta(days=22),
-            # ✅ URL UNIQUE
-            "url_tdr": f"https://www.agetib.net/appels-offres/detail/voirie-{timestamp}-{unique_id}",
-            "pays": "BF",
-            "source_nom": "Agetib.net"
-        }
-    ]
+            {
+                "titre": "Travaux de réhabilitation de voiries urbaines à Ouagadougou",
+                "organisme": "AGETIB - Agence d'Exécution des Travaux d'Intérêt Public",
+                "description": "L'AGETIB lance un appel d'offres pour les travaux de réhabilitation de voiries...",
+                "date_publication": date.today() - timedelta(days=1),  # ✅ date.today() au lieu de datetime.now().date()
+                "date_cloture": date.today() + timedelta(days=22),
+                "url_tdr": f"https://www.agetib.net/appels-offres/detail/voirie-{timestamp}-{unique_id}",
+                "pays": "BF",
+            }
+        ]
     
     def _build_url(self, rel: str) -> str:
         base = "https://www.agetib.net"

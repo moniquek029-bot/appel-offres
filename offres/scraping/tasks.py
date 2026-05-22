@@ -150,6 +150,7 @@ def save_offre_with_fallback(data: dict, source: SourceScraping) -> str:
     # ✅ Création nouvelle offre
     date_pub = parse_french_date(data.get('date_publication')) or timezone.now().date()
     date_clot = parse_french_date(data.get('date_cloture'))
+    logger.info(f"🚫 Offre ignorée car : titre={bool(titre)}, url={unique_url}")
     
     AppelOffre.objects.create(
         titre=titre,

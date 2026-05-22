@@ -1,12 +1,25 @@
 """
 offres/views.py
 Vues avec contrôle d'accès par rôle et gestion des profils obligatoires.
+✅ VERSION CORRIGÉE : Plus de doublons, scraping synchrone, imports organisés
 """
 
 from django.shortcuts import render
 from django.conf import settings
-from django.db.models import Q
-from rest_framework import viewsets, generics, status, permissions
+from django.db.models import Q, Count
+from django.utils import timezone
+from django.contrib.auth import get_user_model
+from django.contrib.admin.models import LogEntry
+
+from datetime import timedelta
+import traceback
+from offres.scraping.tasks import run_scheduled_scraping_task
+from django.contrib.contenttypes.models import ContentType
+
+
+
+
+from rest_framework import request, viewsets, generics, status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.decorators import action
@@ -14,19 +27,31 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from django.contrib.auth import get_user_model
 
-from .permissions import IsAuthenticatedOrReadOnlyPublic, IsExpert, IsBureau, IsAdmin, IsVisitorOrAuthenticated
+# =============================================================================
+# IMPORTS DES MODELS
+# =============================================================================
 from .models import (
     AppelOffre, Utilisateur, ProfilExpert, BureauEtude, 
-    CritereRecherche, InscriptionNewsletter, Notification
+    CritereRecherche, InscriptionNewsletter, Message,
+    HistoriqueConnexion, SuggestionOffre, SourceScraping, Notification
 )
+
+# =============================================================================
+# IMPORTS DES SERIALIZERS
+# =============================================================================
 from .serializers import (
     RegisterSerializer, CustomTokenObtainPairSerializer, UserSerializer,
     AppelOffreSerializer, ProfilExpertSerializer, BureauEtudeSerializer,
     CritereRechercheSerializer, NewsletterSubscriptionSerializer, 
-    ChangePasswordSerializer, NotificationSerializer
+    ChangePasswordSerializer, NotificationSerializer, MessageSerializer,
+    HistoriqueConnexionSerializer, SuggestionOffreSerializer, SourceScrapingSerializer
 )
+
+# =============================================================================
+# IMPORTS DES PERMISSIONS
+# =============================================================================
+from .permissions import IsAuthenticatedOrReadOnlyPublic, IsExpert, IsBureau, IsAdmin
 
 User = get_user_model()
 
@@ -135,28 +160,101 @@ class ChangePasswordView(generics.UpdateAPIView):
 
 class AppelOffreViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Consultation des offres :
-    - Visiteurs : liste + recherche + filtres (métadonnées uniquement)
+    Consultation des offres avec recherche avancée et filtres
+    - Accessible à TOUS (même non connectés pour la lecture)
+    - Visiteurs : liste + recherche + filtres (sans url_tdr)
     - Connectés : détails complets + URL TDR officielle
     """
     permission_classes = [IsAuthenticatedOrReadOnlyPublic]
     serializer_class = AppelOffreSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     
-    filterset_fields = ['pays', 'organisme', 'statut']
+    # Filtres plus complets
+    filterset_fields = {
+        'pays': ['exact'],
+        'statut': ['exact'],
+        'mode_acquisition': ['exact'],
+        'date_publication': ['gte', 'lte'],
+        'date_cloture': ['gte', 'lte'],
+    }
+    
+    # Recherche améliorée
     search_fields = ['titre', 'organisme', 'description']
     ordering_fields = ['date_publication', 'date_cloture', 'titre']
     ordering = ['-date_publication']
 
     def get_queryset(self):
-        # ✅ VERSION DÉVELOPPEMENT : Afficher TOUTES les offres scrapées
-        return AppelOffre.objects.all()
+        """Filtres avancés (mots-clés multiples, délai, pays)"""
+        # Offres ouvertes par défaut
+        queryset = AppelOffre.objects.filter(statut='Ouvert')
+        
+        # Filtre par statut si spécifié
+        statut = self.request.query_params.get('statut')
+        if statut:
+            queryset = queryset.filter(statut=statut)
+        
+        # Filtre par mots-clés multiples
+        keywords = self.request.query_params.getlist('keywords', [])
+        if keywords:
+            q_objects = Q()
+            for keyword in keywords:
+                q_objects |= Q(titre__icontains=keyword) | Q(description__icontains=keyword)
+            queryset = queryset.filter(q_objects)
+        
+        # Filtre par délai (jours avant clôture)
+        max_days = self.request.query_params.get('max_days')
+        if max_days:
+            limit_date = timezone.now().date() + timedelta(days=int(max_days))
+            queryset = queryset.filter(date_cloture__lte=limit_date)
+        
+        # Filtre par pays multiples
+        countries = self.request.query_params.getlist('countries', [])
+        if countries:
+            queryset = queryset.filter(pays__in=countries)
+        
+        return queryset.order_by('-date_publication')
 
     def retrieve(self, request, *args, **kwargs):
         """Détail d'une offre : passe le contexte request pour gérer url_tdr"""
         instance = self.get_object()
         serializer = self.get_serializer(instance, context={'request': request})
         return Response(serializer.data)
+    
+    def list(self, request, *args, **kwargs):
+        """Liste des offres avec debug"""
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True, context={'request': request})
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True, context={'request': request})
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='recent')
+    def recent_offres(self, request):
+        """Offres publiées dans les 7 derniers jours"""
+        seven_days_ago = timezone.now().date() - timedelta(days=7)
+        recent = AppelOffre.objects.filter(
+            date_publication__gte=seven_days_ago,
+            statut='Ouvert'
+        ).order_by('-date_publication')[:20]
+        serializer = self.get_serializer(recent, many=True, context={'request': request})
+        return Response(serializer.data)
+    # offres/views.py - Dans AppelOffreViewSet
+
+    @action(detail=False, methods=['post'], url_path='create-manuel', permission_classes=[permissions.IsAdminUser])
+    def create_manuel(self, request):
+        """Permet à un administrateur de créer une offre manuellement"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+    
+    # Force le mode_acquisition à MANUEL
+        offre = serializer.save(mode_acquisition='MANUEL')
+    
+        return Response({
+            'message': 'Offre publiée avec succès.',
+            'offre': AppelOffreSerializer(offre, context={'request': request}).data
+        }, status=status.HTTP_201_CREATED)
 
 
 # =============================================================================
@@ -169,7 +267,6 @@ class ExpertDashboardView(APIView):
     
     def get(self, request):
         user = request.user
-        
         if not user.is_authenticated:
             return Response({'error': 'Authentification requise'}, status=401)
         
@@ -181,16 +278,13 @@ class ExpertDashboardView(APIView):
             profile = getattr(user, 'profil_expert', None)
             criteres_count = CritereRecherche.objects.filter(utilisateur=user).count()
             
-            # Offres correspondantes aux critères
             matching_offres = []
             criteres = CritereRecherche.objects.filter(utilisateur=user)
-            
             if criteres.exists():
                 query = Q()
                 for critere in criteres:
                     if critere.mots_cles:
-                        query |= Q(titre__icontains=critere.mots_cles) | \
-                                 Q(description__icontains=critere.mots_cles)
+                        query |= Q(titre__icontains=critere.mots_cles) | Q(description__icontains=critere.mots_cles)
                 if query:
                     matching_offres = AppelOffre.objects.filter(query).order_by('-date_publication')[:10]
             
@@ -198,17 +292,11 @@ class ExpertDashboardView(APIView):
             if profile:
                 try:
                     profile_data = ProfilExpertSerializer(profile).data
-                except Exception as e:
-                    if settings.DEBUG:
-                        print(f"⚠️ Erreur sérialisation profil: {e}")
+                except Exception:
+                    pass
             
             return Response({
-                'user': {
-                    'id': user.id,
-                    'email': user.email,
-                    'nom': f"{user.first_name} {user.last_name}".strip(),
-                    'role': user.role,
-                },
+                'user': {'id': user.id, 'email': user.email, 'nom': f"{user.first_name} {user.last_name}".strip(), 'role': user.role},
                 'profile': profile_data,
                 'stats': {
                     'criteres_count': criteres_count,
@@ -218,12 +306,10 @@ class ExpertDashboardView(APIView):
                 'recent_matching_offres': self._serialize_offres(matching_offres),
                 'next_steps': self._get_next_steps(user, profile)
             })
-            
         except Exception as e:
             if settings.DEBUG:
                 import traceback
-                print(f"❌ ERREUR DASHBOARD EXPERT: {str(e)}")
-                print(traceback.format_exc())
+                print(f"❌ ERREUR DASHBOARD EXPERT: {e}\n{traceback.format_exc()}")
             return Response({'error': 'Erreur serveur interne'}, status=500)
 
     def _serialize_offres(self, offres):
@@ -235,19 +321,9 @@ class ExpertDashboardView(APIView):
     def _get_next_steps(self, user, profile):
         steps = []
         if not profile or not getattr(profile, 'cv_fichier', None):
-            steps.append({
-                'priority': 'high',
-                'action': 'upload_cv',
-                'message': 'Téléchargez votre CV pour compléter votre profil',
-                'url': '/expert/profile'
-            })
+            steps.append({'priority': 'high', 'action': 'upload_cv', 'message': 'Téléchargez votre CV', 'url': '/expert/profile'})
         if not steps:
-            steps.append({
-                'priority': 'low',
-                'action': 'browse_offres',
-                'message': 'Consultez les dernières offres disponibles',
-                'url': '/offres'
-            })
+            steps.append({'priority': 'low', 'action': 'browse_offres', 'message': 'Consultez les offres', 'url': '/offres'})
         return steps
 
 
@@ -261,7 +337,6 @@ class BureauDashboardView(APIView):
     
     def get(self, request):
         user = request.user
-        
         if not user.is_authenticated:
             return Response({'error': 'Authentification requise'}, status=401)
         
@@ -271,52 +346,26 @@ class BureauDashboardView(APIView):
         
         try:
             bureau = getattr(user, 'bureauetude', None)
-            
-            bureau_data = None
-            if bureau:
-                try:
-                    bureau_data = BureauEtudeSerializer(bureau).data
-                except Exception as e:
-                    if settings.DEBUG:
-                        print(f"⚠️ Erreur sérialisation bureau: {e}")
+            bureau_data = BureauEtudeSerializer(bureau).data if bureau else None
             
             return Response({
-                'user': {
-                    'id': user.id,
-                    'email': user.email,
-                    'nom': f"{user.first_name} {user.last_name}".strip(),
-                    'role': user.role,
-                },
+                'user': {'id': user.id, 'email': user.email, 'nom': f"{user.first_name} {user.last_name}".strip(), 'role': user.role},
                 'bureau': bureau_data,
-                'stats': {
-                    'profile_complete': bool(bureau and getattr(bureau, 'cv_fichier', None)),
-                },
+                'stats': {'profile_complete': bool(bureau and getattr(bureau, 'cv_fichier', None))},
                 'next_steps': self._get_next_steps(user, bureau)
             })
-            
         except Exception as e:
             if settings.DEBUG:
                 import traceback
-                print(f"❌ ERREUR DASHBOARD BUREAU: {str(e)}")
-                print(traceback.format_exc())
+                print(f"❌ ERREUR DASHBOARD BUREAU: {e}\n{traceback.format_exc()}")
             return Response({'error': 'Erreur serveur interne'}, status=500)
 
     def _get_next_steps(self, user, bureau):
         steps = []
         if not bureau or not getattr(bureau, 'cv_fichier', None):
-            steps.append({
-                'priority': 'high',
-                'action': 'upload_cv',
-                'message': 'Téléchargez les documents de votre structure',
-                'url': '/bureau/profile'
-            })
+            steps.append({'priority': 'high', 'action': 'upload_cv', 'message': 'Téléchargez les documents', 'url': '/bureau/profile'})
         if not steps:
-            steps.append({
-                'priority': 'low',
-                'action': 'browse_offres',
-                'message': 'Consultez les dernières offres disponibles',
-                'url': '/offres'
-            })
+            steps.append({'priority': 'low', 'action': 'browse_offres', 'message': 'Consultez les offres', 'url': '/offres'})
         return steps
 
 
@@ -345,10 +394,8 @@ class ProfilExpertViewSet(viewsets.ModelViewSet):
             profile = request.user.profil_expert
             if 'cv_fichier' not in request.FILES:
                 return Response({'error': 'Fichier CV requis'}, status=status.HTTP_400_BAD_REQUEST)
-            
             profile.cv_fichier = request.FILES['cv_fichier']
             profile.save()
-            
             return Response({
                 'message': 'CV téléchargé avec succès.',
                 'cv_url': profile.cv_fichier.url if profile.cv_fichier else None,
@@ -363,7 +410,7 @@ class ProfilExpertViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 class BureauEtudeViewSet(viewsets.ModelViewSet):
-    """Gestion du profil Bureau - Accès Bureau uniquement"""
+    """Gestion du profil Bureau d'Étude - Accès Bureau uniquement"""
     serializer_class = BureauEtudeSerializer
     permission_classes = [IsBureau]
 
@@ -375,29 +422,37 @@ class BureauEtudeViewSet(viewsets.ModelViewSet):
     
     def perform_update(self, serializer):
         serializer.save(gestionnaire=self.request.user)
-
-    @action(detail=False, methods=['post'], url_path='upload-cv')
-    def upload_cv(self, request):
-        """Endpoint dédié pour l'upload des documents du bureau"""
+    
+    @action(detail=False, methods=['put'], url_path='update-profile')
+    def update_profile(self, request):
+        """Mise à jour complète du profil bureau"""
         try:
             bureau = request.user.bureauetude
-            if 'cv_fichier' not in request.FILES:
-                return Response({'error': 'Fichier requis'}, status=status.HTTP_400_BAD_REQUEST)
-            
-            bureau.cv_fichier = request.FILES['cv_fichier']
+            allowed_fields = ['nom_structure', 'pays', 'adresse', 'domaine_activite', 'email_contact', 'telephone', 'site_web']
+            for field in allowed_fields:
+                if field in request.data:
+                    setattr(bureau, field, request.data[field])
             bureau.save()
-            
             return Response({
-                'message': 'Document téléchargé avec succès.',
-                'cv_url': bureau.cv_fichier.url if bureau.cv_fichier else None,
-                'is_profile_complete': True
+                'message': 'Profil mis à jour avec succès.',
+                'profile': BureauEtudeSerializer(bureau).data,
+                'is_profile_complete': getattr(bureau, 'profil_complet', lambda: True)()
             })
+        except BureauEtude.DoesNotExist:
+            return Response({'error': 'Profil bureau non trouvé'}, status=status.HTTP_404_NOT_FOUND)
+    
+    @action(detail=False, methods=['get'], url_path='my-profile')
+    def my_profile(self, request):
+        """Récupère le profil complet du bureau"""
+        try:
+            bureau = request.user.bureauetude
+            return Response({'profile': BureauEtudeSerializer(bureau).data, 'is_complete': getattr(bureau, 'profil_complet', lambda: True)()})
         except BureauEtude.DoesNotExist:
             return Response({'error': 'Profil bureau non trouvé'}, status=status.HTTP_404_NOT_FOUND)
 
 
 # =============================================================================
-# CRITÈRES DE RECHERCHE (Experts uniquement)
+# CRITÈRES DE RECHERCHE & NEWSLETTER
 # =============================================================================
 
 class CritereRechercheViewSet(viewsets.ModelViewSet):
@@ -412,10 +467,6 @@ class CritereRechercheViewSet(viewsets.ModelViewSet):
         serializer.save(utilisateur=self.request.user)
 
 
-# =============================================================================
-# NEWSLETTER - ACCÈS PUBLIC
-# =============================================================================
-
 class NewsletterSubscriptionView(generics.CreateAPIView):
     """Inscription à la newsletter sans compte."""
     queryset = InscriptionNewsletter.objects.all()
@@ -425,8 +476,506 @@ class NewsletterSubscriptionView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        subscription = serializer.save()
+        serializer.save()
+        return Response({'message': 'Inscription réussie !'}, status=status.HTTP_201_CREATED)
+
+
+# =============================================================================
+# MESSAGERIE
+# =============================================================================
+
+class MessageViewSet(viewsets.ModelViewSet):
+    """API pour la messagerie entre utilisateurs et administrateur"""
+    serializer_class = MessageSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            return Message.objects.all()
+        return Message.objects.filter(Q(expediteur=user) | Q(destinataire=user))
+    
+    def perform_create(self, serializer):
+        user = self.request.user
+        destinataire_id = self.request.data.get('destinataire')
+        if not destinataire_id:
+            admin = User.objects.filter(is_superuser=True).first()
+            destinataire = admin
+        else:
+            destinataire = User.objects.get(id=destinataire_id)
+        serializer.save(expediteur=user, destinataire=destinataire)
+        Notification.objects.create(
+            destinataire=destinataire,
+            objet=f"Nouveau message: {serializer.validated_data.get('sujet', 'Sans sujet')}",
+            message=f"Message de {user.email}: {serializer.validated_data.get('contenu', '')[:100]}",
+            offre_liee=None
+        )
+    
+    @action(detail=True, methods=['post'], url_path='marquer-lu')
+    def marquer_lu(self, request, pk=None):
+        message = self.get_object()
+        if message.destinataire == request.user:
+            message.est_lu = True
+            message.save()
+            return Response({'status': 'Message marqué comme lu'})
+        return Response({'error': 'Vous ne pouvez pas marquer ce message'}, status=403)
+    
+    @action(detail=False, methods=['post'], url_path='envoyer-admin')
+    def envoyer_a_admin(self, request):
+        admin = User.objects.filter(is_superuser=True).first()
+        if not admin:
+            return Response({'error': 'Aucun administrateur trouvé'}, status=404)
+        sujet = request.data.get('sujet', '')
+        contenu = request.data.get('contenu', '')
+        if not sujet or not contenu:
+            return Response({'error': 'Sujet et contenu requis'}, status=400)
+        message = Message.objects.create(expediteur=request.user, destinataire=admin, sujet=sujet, contenu=contenu)
+        Notification.objects.create(destinataire=admin, objet=f"Nouveau message de {request.user.email}", message=contenu[:200], offre_liee=None)
+        return Response(MessageSerializer(message).data, status=201)
+    
+    @action(detail=False, methods=['get'], url_path='non-lus')
+    def messages_non_lus(self, request):
+        messages = Message.objects.filter(destinataire=request.user, est_lu=False)
+        return Response({'count': messages.count(), 'results': MessageSerializer(messages, many=True).data})
+    
+    @action(detail=False, methods=['get'], url_path='conversation-admin')
+    def conversation_avec_admin(self, request):
+        admin = User.objects.filter(is_superuser=True).first()
+        if not admin:
+            return Response({'error': 'Aucun administrateur trouvé'}, status=404)
+        messages = Message.objects.filter(
+            Q(expediteur=request.user, destinataire=admin) | Q(expediteur=admin, destinataire=request.user)
+        ).order_by('date_envoi')
+        return Response(MessageSerializer(messages, many=True).data)
+
+
+# =============================================================================
+# ADMIN DASHBOARD & STATS
+# =============================================================================
+
+class AdminDashboardView(APIView):
+    """Tableau de bord administrateur avec statistiques"""
+    permission_classes = [permissions.IsAdminUser]
+    
+    def get(self, request):
+        # Stats offres
+        total_offres = AppelOffre.objects.count()
+        offres_par_source = [{'nom': s.nom, 'count': AppelOffre.objects.filter(source_origine=s).count()} for s in SourceScraping.objects.all() if AppelOffre.objects.filter(source_origine=s).count() > 0]
+        
+        # Stats utilisateurs
+        date_limite = timezone.now() - timedelta(days=30)
+        
+        # Stats connexions (si modèle existe)
+        connexions_aujourdhui = HistoriqueConnexion.objects.filter(date_connexion__date=timezone.now().date()).count() if 'HistoriqueConnexion' in globals() else 0
+        connexions_semaine = HistoriqueConnexion.objects.filter(date_connexion__gte=timezone.now() - timedelta(days=7)).count() if 'HistoriqueConnexion' in globals() else 0
+        
+        # Stats messages
+        messages_non_lus = Message.objects.filter(destinataire=request.user, est_lu=False).count() if 'Message' in globals() else 0
+        
+        # Stats suggestions
+        suggestions_envoyees = SuggestionOffre.objects.count() if 'SuggestionOffre' in globals() else 0
+        suggestions_consultees = SuggestionOffre.objects.filter(est_consulte_par_expert=True).count() if 'SuggestionOffre' in globals() else 0
+        
+        data = {
+            'offres': {
+                'total': total_offres,
+                'scrapees': AppelOffre.objects.filter(mode_acquisition='AUTO').count(),
+                'manuelles': AppelOffre.objects.filter(mode_acquisition='MANUEL').count(),
+                'actives': AppelOffre.objects.filter(statut='Ouvert').count(),
+                'par_source': offres_par_source,
+            },
+            'utilisateurs': {
+                'total': Utilisateur.objects.count(),
+                'experts': Utilisateur.objects.filter(role='EXPERT').count(),
+                'bureaux': Utilisateur.objects.filter(role='BUREAU').count(),
+                'admins': Utilisateur.objects.filter(is_staff=True).count(),
+                'nouveaux_30j': Utilisateur.objects.filter(date_joined__gte=date_limite).count(),
+            },
+            'connexions': {'aujourdhui': connexions_aujourdhui, 'semaine': connexions_semaine},
+            'messages': {'non_lus': messages_non_lus, 'total': Message.objects.count() if 'Message' in globals() else 0},
+            'suggestions': {'envoyees': suggestions_envoyees, 'consultees': suggestions_consultees},
+        }
+        return Response(data)
+
+
+# =============================================================================
+# ADMIN - GESTION DES SOURCES DE SCRAPPING (CORRIGÉ - SYNCHRONE + ROBUSTE)
+# =============================================================================
+
+class AdminSourceViewSet(viewsets.ModelViewSet):
+    """CRUD complet pour les sources de scraping - Admin uniquement"""
+    serializer_class = SourceScrapingSerializer
+    permission_classes = [IsAdmin]
+    queryset = SourceScraping.objects.all()
+    
+    @action(detail=False, methods=['post'], url_path='run')
+    def run_scraping(self, request):
+        """
+        Lance le scraping sur les sources sélectionnées.
+        ✅ VERSION SYNCHRONE + GESTION D'ERREURS COMPLÈTE (fonctionne sans Redis)
+        """
+        try:
+            source_ids = request.data.get('source_ids', [])
+            
+            # Validation stricte
+            if not isinstance(source_ids, list):
+                return Response({'error': 'source_ids doit être une liste'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not all(isinstance(i, int) for i in source_ids):
+                return Response({'error': 'source_ids doit contenir des identifiants entiers'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not source_ids:
+                return Response({'error': 'Aucune source sélectionnée'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Import de la tâche de scraping
+            
+            results = []
+            
+            for source_id in source_ids:
+                try:
+                    # Vérifier que la source existe et est active
+                    source = SourceScraping.objects.filter(id=source_id, est_actif=True).first()
+                    if not source:
+                        results.append({
+                            'source_id': source_id,
+                            'status': 'skipped',
+                            'reason': 'Source inactive ou inexistante'
+                        })
+                        continue
+                    
+                    # ✅ APPEL SYNCHRONE DIRECT (pas de .delay()) - fonctionne sans Redis
+                    result = run_scheduled_scraping_task(source_id=source_id)
+                    
+                    results.append({
+                        'source_id': source_id,
+                        'status': 'success',
+                        'new': result.get('new', 0) if isinstance(result, dict) else 0,
+                        'updated': result.get('updated', 0) if isinstance(result, dict) else 0,
+                        'source_name': source.nom
+                    })
+                    
+                    # Mettre à jour last_scraped
+                    source.last_scraped = timezone.now()
+                    source.save(update_fields=['last_scraped'])
+                    
+                except Exception as task_err:
+                    print(f"❌ Erreur scraping source {source_id}: {task_err}")
+                    print(traceback.format_exc())
+                    results.append({
+                        'source_id': source_id,
+                        'status': 'error',
+                        'error': str(task_err)
+                    })
+            
+            # Résumé
+            success_count = len([r for r in results if r['status'] == 'success'])
+            error_count = len([r for r in results if r['status'] == 'error'])
+            skipped_count = len([r for r in results if r['status'] == 'skipped'])
+            
+            return Response({
+                'message': f'Scraping terminé: {success_count} succès, {error_count} erreurs, {skipped_count} ignorées',
+                'results': results,
+                'summary': {
+                    'total': len(source_ids),
+                    'success': success_count,
+                    'errors': error_count,
+                    'skipped': skipped_count
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            import traceback
+            print(f"❌ ERREUR CRITIQUE run_scraping: {e}")
+            print(traceback.format_exc())
+            return Response({'error': f'Erreur serveur: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# =============================================================================
+# ADMIN - ENDPOINT DÉDIÉ POUR LANCER LE SCRAPPING (Alternative simple)
+# =============================================================================
+
+class AdminSourcesRunView(APIView):
+    """Endpoint alternatif pour lancer le scraping - Admin uniquement"""
+    permission_classes = [permissions.IsAdminUser]
+    
+    def post(self, request):
+        source_ids = request.data.get('source_ids', [])
+        if not source_ids:
+            return Response({'error': 'Aucune source sélectionnée'}, status=400)
+        
+        sources = SourceScraping.objects.filter(id__in=source_ids, est_actif=True)
+        if not sources.exists():
+            return Response({'error': 'Aucune source active trouvée'}, status=400)
+        
+        total_new, total_updated = 0, 0
+        from offres.scraping.tasks import run_scheduled_scraping_task
+        
+        for source in sources:
+            try:
+                result = run_scheduled_scraping_task(source_id=source.id)
+                if isinstance(result, dict):
+                    total_new += result.get('new', 0)
+                    total_updated += result.get('updated', 0)
+                source.last_scraped = timezone.now()
+                source.save(update_fields=['last_scraped'])
+            except Exception as e:
+                print(f"❌ Erreur scraping {source.nom}: {e}")
         
         return Response({
-            'message': 'Inscription réussie ! Vous recevrez les nouvelles offres par email.'
-        }, status=status.HTTP_201_CREATED)
+            'message': f'Scraping terminé sur {sources.count()} source(s)',
+            'new': total_new, 'updated': total_updated, 'sources': sources.count()
+        })
+
+
+# =============================================================================
+# ADMIN - GESTION DES UTILISATEURS (VERSION UNIQUE CORRIGÉE)
+# =============================================================================
+
+class AdminUtilisateurViewSet(viewsets.ModelViewSet):
+    """Gestion complète des utilisateurs par l'admin"""
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAdminUser]
+    
+    def get_queryset(self):
+        return Utilisateur.objects.exclude(is_superuser=True)
+    
+    def perform_update(self, serializer):
+        user = serializer.save()
+        if settings.DEBUG:
+            print(f"Admin {self.request.user.email} a modifié {user.email}")
+    
+    @action(detail=True, methods=['patch'], url_path='toggle-active')
+    def toggle_active(self, request, pk=None):
+        """Bloquer/débloquer un utilisateur"""
+        try:
+            user = self.get_object()
+            user.is_active = not user.is_active
+            user.save(update_fields=['is_active'])
+        
+             # ✅ CORRECTION : Utiliser ContentType pour obtenir le content_type_id
+            content_type = ContentType.objects.get_for_model(user)
+        
+            # Log de l'action
+            LogEntry.objects.log_action(
+                user_id=request.user.id,
+                content_type_id=content_type.pk,  # ✅ .pk au lieu de .content_type_id
+                object_id=user.pk,
+                object_repr=str(user),
+                action_flag=2,  # CHANGE
+                change_message=f'Utilisateur {"bloqué" if not user.is_active else "débloqué"} par admin'
+            )
+        
+            return Response({
+                'message': f'Utilisateur {user.email} {"bloqué" if not user.is_active else "débloqué"}',
+                'is_active': user.is_active
+            }, status=status.HTTP_200_OK)
+        
+        except Exception as e:
+            print(f"❌ ERREUR toggle_active: {e}")
+            print(traceback.format_exc())
+            return Response({'error': f'Erreur serveur: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['delete'], url_path='force-delete')
+    def force_delete(self, request, pk=None):
+        """Suppression définitive d'un utilisateur"""
+        try:
+            user = self.get_object()
+        
+            # Empêcher la suppression de soi-même ou d'un superuser
+            if user.is_superuser or user.id == request.user.id:
+                return Response({'error': 'Impossible de supprimer cet utilisateur'}, status=status.HTTP_403_FORBIDDEN)
+        
+            user_email = user.email
+        
+            # ✅ CORRECTION : Utiliser ContentType pour le log
+            content_type = ContentType.objects.get_for_model(user)
+        
+            user.delete()
+        
+            # Log de la suppression
+            from django.contrib.admin.models import LogEntry
+            LogEntry.objects.log_action(
+                user_id=request.user.id,
+                content_type_id=content_type.pk,  # ✅ .pk au lieu de None
+                object_id=user.pk,  # ✅ Utiliser user.pk avant suppression ou garder None si préféré
+                object_repr=f'Utilisateur supprimé: {user_email}',
+                action_flag=3,  # DELETE
+                change_message=f'Utilisateur {user_email} supprimé définitivement par admin'
+            )
+        
+            return Response({'message': f'Utilisateur {user_email} supprimé'}, status=status.HTTP_200_OK)
+        
+        except Exception as e:
+            print(f"❌ ERREUR force_delete: {e}")
+            print(traceback.format_exc())
+            return Response({'error': f'Erreur serveur: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# =============================================================================
+# ADMIN - HISTORIQUE DES CONNEXIONS
+# =============================================================================
+
+class AdminConnexionHistoriqueView(APIView):
+    """Historique des connexions des utilisateurs"""
+    permission_classes = [permissions.IsAdminUser]
+    
+    def get(self, request):
+        connexions = HistoriqueConnexion.objects.all().select_related('utilisateur').order_by('-date_connexion')[:100]
+        return Response(HistoriqueConnexionSerializer(connexions, many=True).data)
+
+
+# =============================================================================
+# ADMIN - GESTION DES SUGGESTIONS (VERSION UNIQUE CORRIGÉE)
+# =============================================================================
+
+class AdminSuggestionOffreViewSet(viewsets.ModelViewSet):
+    """Gestion des suggestions expert/offre par l'admin"""
+    serializer_class = SuggestionOffreSerializer
+    permission_classes = [permissions.IsAdminUser]
+    queryset = SuggestionOffre.objects.select_related('expert__utilisateur', 'offre')
+    
+    def perform_create(self, serializer):
+        suggestion = serializer.save()
+        Notification.objects.create(
+            destinataire=suggestion.expert.utilisateur, offre_liee=suggestion.offre,
+            objet='Nouvelle suggestion d\'offre',
+            message=f'Un administrateur vous suggère: {suggestion.offre.titre[:100]}'
+        )
+    
+    @action(detail=True, methods=['post'], url_path='envoyer')
+    def envoyer_suggestion(self, request, pk=None):
+        """Envoyer la notification à l'expert"""
+        suggestion = self.get_object()
+        Notification.objects.create(
+            destinataire=suggestion.expert.utilisateur, offre_liee=suggestion.offre,
+            objet=f"Suggestion: {suggestion.offre.titre}",
+            message=f"L'admin vous suggère cette offre: {suggestion.offre.titre}"
+        )
+        return Response({'status': 'Suggestion envoyée à l\'expert'})
+    
+    @action(detail=True, methods=['delete'], url_path='force-delete')
+    def force_delete(self, request, pk=None):
+        """Supprimer une suggestion"""
+        suggestion = self.get_object()
+        suggestion_id = suggestion.id
+        suggestion.delete()
+        LogEntry.objects.log_action(
+            user_id=request.user.id, content_type_id=suggestion._meta.content_type_id,
+            object_id=suggestion_id, object_repr=f'Suggestion #{suggestion_id}',
+            action_flag=3, change_message='Suggestion supprimée par admin'
+        )
+        return Response({'message': 'Suggestion supprimée'}, status=status.HTTP_200_OK)
+
+
+# =============================================================================
+# ADMIN - RÉPONSE AUX MESSAGES
+# =============================================================================
+
+class AdminReponseMessageView(APIView):
+    """Permet à l'administrateur de répondre aux messages"""
+    permission_classes = [permissions.IsAdminUser]
+    
+    def post(self, request, message_id):
+        try:
+            message_original = Message.objects.get(id=message_id)
+        except Message.DoesNotExist:
+            return Response({'error': 'Message non trouvé'}, status=404)
+        
+        contenu = request.data.get('contenu', '')
+        if not contenu:
+            return Response({'error': 'Le contenu du message est requis'}, status=400)
+        
+        reponse = Message.objects.create(
+            expediteur=request.user, destinataire=message_original.expediteur,
+            sujet=f"RE: {message_original.sujet}", contenu=contenu
+        )
+        Notification.objects.create(
+            destinataire=message_original.expediteur, objet=f"Réponse à votre message",
+            message=contenu[:200], offre_liee=None
+        )
+        return Response(MessageSerializer(reponse).data, status=201)
+
+
+# =============================================================================
+# ADMIN - EFFACER L'HISTORIQUE
+# =============================================================================
+
+class AdminHistoryView(APIView):
+    """Gestion de l'historique admin - effacement sécurisé"""
+    permission_classes = [permissions.IsAdminUser]
+    
+    def get(self, request):
+        logs = LogEntry.objects.select_related('user', 'content_type').order_by('-action_time')[:100]
+        return Response([{
+            'id': log.id, 'action_type': log.get_action_flag_display(),
+            'utilisateur_email': log.user.email if log.user else 'Système',
+            'date_action': log.action_time, 'details': log.change_message,
+            'object_repr': log.object_repr
+        } for log in logs])
+    
+    def post(self, request):
+        if request.data.get('confirm') != 'EFFACER TOUT':
+            return Response({'error': 'Confirmation requise: tapez "EFFACER TOUT"'}, status=status.HTTP_400_BAD_REQUEST)
+        admin_password = request.data.get('admin_password')
+        if not request.user.check_password(admin_password):
+            return Response({'error': 'Mot de passe administrateur incorrect'}, status=status.HTTP_403_FORBIDDEN)
+        
+        count, _ = LogEntry.objects.all().delete()
+        LogEntry.objects.log_action(
+            user_id=request.user.id, content_type_id=None, object_id=None,
+            object_repr='Historique admin', action_flag=3,
+            change_message=f'Historique effacé ({count} entrées) par admin'
+        )
+        return Response({'message': f'{count} entrées d\'historique effacées'}, status=status.HTTP_200_OK)
+
+
+# =============================================================================
+# NOTIFICATIONS & PRÉFÉRENCES
+# =============================================================================
+
+class NotificationUserViewSet(viewsets.ModelViewSet):
+    """Gestion des notifications utilisateur"""
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Notification.objects.filter(destinataire=self.request.user)
+
+    @action(detail=True, methods=['post'], url_path='marquer-lue')
+    def marquer_lue(self, request, pk=None):
+        notification = self.get_object()
+        notification.est_lue = True
+        notification.save()
+        return Response({'status': 'Notification marquée comme lue'})
+
+
+class PreferenceAlerteViewSet(viewsets.ModelViewSet):
+    """Gestion des préférences d'alertes"""
+    permission_classes = [permissions.IsAuthenticated]
+    def get_queryset(self):
+        return []
+    def get_object(self):
+        return None
+
+
+# =============================================================================
+# OFFRES PUBLIQUES (VISITEURS NON CONNECTÉS)
+# =============================================================================
+
+class OffresPubliquesView(generics.ListAPIView):
+    """Liste des offres accessible aux visiteurs (non connectés)"""
+    serializer_class = AppelOffreSerializer
+    permission_classes = [permissions.AllowAny]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['pays', 'statut']
+    search_fields = ['titre', 'organisme', 'description']
+    ordering_fields = ['date_publication', 'date_cloture']
+    ordering = ['-date_publication']
+    
+    def get_queryset(self):
+        return AppelOffre.objects.filter(statut='Ouvert')
+    
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context

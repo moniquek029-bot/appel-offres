@@ -4,8 +4,8 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from .models import (
-    Utilisateur, AppelOffre, ProfilExpert, BureauEtude, 
-    CritereRecherche, InscriptionNewsletter, Notification
+    SourceScraping, Utilisateur, AppelOffre, ProfilExpert, BureauEtude, 
+    CritereRecherche, InscriptionNewsletter, Notification, Message, HistoriqueConnexion, SuggestionOffre
 )
 
 User = get_user_model()
@@ -15,14 +15,19 @@ User = get_user_model()
 # AUTHENTIFICATION
 # =============================================================================
 
+# offres/serializers.py - Modifier RegisterSerializer
+
 class RegisterSerializer(serializers.ModelSerializer):
-    """Serializer d'inscription avec validation des mots de passe"""
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
     password_confirm = serializers.CharField(write_only=True, required=True)
+    adresse = serializers.CharField(required=False, allow_blank=True)
+    date_naissance = serializers.DateField(required=False, allow_null=True)
+    genre = serializers.CharField(required=False, allow_blank=True, max_length=1)
 
     class Meta:
         model = User
-        fields = ('email', 'first_name', 'last_name', 'password', 'password_confirm', 'role', 'telephone', 'pays')
+        fields = ('email', 'first_name', 'last_name', 'password', 'password_confirm', 
+                  'role', 'telephone', 'pays', 'adresse', 'date_naissance', 'genre')
         extra_kwargs = {
             'first_name': {'required': True},
             'last_name': {'required': True},
@@ -35,6 +40,10 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data.pop('password_confirm')
+        adresse = validated_data.pop('adresse', '')
+        date_naissance = validated_data.pop('date_naissance', None)
+        genre = validated_data.pop('genre', '')
+        
         user = User.objects.create_user(
             email=validated_data['email'],
             password=validated_data['password'],
@@ -42,13 +51,22 @@ class RegisterSerializer(serializers.ModelSerializer):
             last_name=validated_data['last_name'],
             role=validated_data.get('role', 'EXPERT'),
             telephone=validated_data.get('telephone', ''),
-            pays=validated_data.get('pays', 'BF')
+            pays=validated_data.get('pays', 'BF'),
+            adresse=adresse,
+            date_naissance=date_naissance,
+            genre=genre
         )
+        
+        # ✅ CORRECTION : Vérifier si le profil existe déjà avant de le créer
+        if user.role == 'EXPERT':
+            ProfilExpert.objects.get_or_create(utilisateur=user)
+        elif user.role == 'BUREAU':
+            BureauEtude.objects.get_or_create(gestionnaire=user)
+        
         return user
 
-
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """Login personnalisé avec infos utilisateur + gestion sécurisée des champs spéciaux"""
+    """Login personnalisé avec infos utilisateur"""
     
     @classmethod
     def get_token(cls, user):
@@ -63,7 +81,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         user = self.user
         
-        # ✅ Conversion sécurisée : CountryField → string
         pays_value = getattr(user, 'pays', None)
         pays_str = str(pays_value) if pays_value else ''
         telephone = getattr(user, 'telephone', '') or ''
@@ -71,6 +88,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         user_data = {
             'id': user.id,
             'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
             'nom': f"{user.first_name} {user.last_name}".strip(),
             'role': user.role,
             'telephone': telephone,
@@ -83,9 +102,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 user_data['profil'] = ProfilExpertSerializer(user.profil_expert).data
             except Exception:
                 user_data['profil'] = None
-        elif user.role in ['BUREAU', 'BUREAU_ETUDE'] and hasattr(user, 'bureauetude'):
+        elif user.role == 'BUREAU' and hasattr(user, 'bureau_etude'):
             try:
-                user_data['profil'] = BureauEtudeSerializer(user.bureauetude).data
+                user_data['profil'] = BureauEtudeSerializer(user.bureau_etude).data
             except Exception:
                 user_data['profil'] = None
         
@@ -97,32 +116,31 @@ class UserSerializer(serializers.ModelSerializer):
     """Serializer utilisateur avec accès sécurisé aux profils"""
     nom = serializers.SerializerMethodField()
     profil = serializers.SerializerMethodField()
-    pays = serializers.SerializerMethodField()
+    pays_str = serializers.SerializerMethodField()
     
     class Meta:
         model = User
         fields = ('id', 'email', 'first_name', 'last_name', 'nom', 'role', 
-                  'telephone', 'pays', 'date_joined', 'profil')
+                  'telephone', 'pays', 'pays_str', 'date_naissance', 'genre',
+                  'adresse', 'date_joined', 'profil')
         read_only_fields = ('id', 'date_joined')
     
     def get_nom(self, obj):
         return f"{obj.first_name} {obj.last_name}".strip()
     
-    def get_pays(self, obj):
-        """Convertit CountryField en string JSON-safe"""
+    def get_pays_str(self, obj):
         pays = getattr(obj, 'pays', None)
         return str(pays) if pays else ''
     
     def get_profil(self, obj):
-        """Retourne le profil lié ou None de façon sécurisée"""
         if obj.role == 'EXPERT' and hasattr(obj, 'profil_expert'):
             try:
                 return ProfilExpertSerializer(obj.profil_expert).data
             except Exception:
                 return None
-        elif obj.role in ['BUREAU', 'BUREAU_ETUDE'] and hasattr(obj, 'bureauetude'):
+        elif obj.role == 'BUREAU' and hasattr(obj, 'bureau_etude'):
             try:
-                return BureauEtudeSerializer(obj.bureauetude).data
+                return BureauEtudeSerializer(obj.bureau_etude).data
             except Exception:
                 return None
         return None
@@ -147,17 +165,13 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 # =============================================================================
-# APPELS D'OFFRES - ACCÈS DIFFÉRENCIÉ AUX URLs
+# APPELS D'OFFRES
 # =============================================================================
 
 class AppelOffreSerializer(serializers.ModelSerializer):
     source_nom = serializers.ReadOnlyField(source='source_origine.nom')
     jours_restants = serializers.SerializerMethodField()
-    
-    # ✅ url_source : toujours visible
     url_source = serializers.URLField(read_only=True)
-    
-    # ✅ url_tdr : masquée pour les visiteurs non authentifiés
     url_tdr = serializers.SerializerMethodField()
 
     class Meta:
@@ -165,13 +179,15 @@ class AppelOffreSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'titre', 'organisme', 'description', 'pays', 
             'date_publication', 'date_cloture', 
-            'url_source', 'url_tdr',  # ✅ Les deux URLs
+            'url_source', 'url_tdr',
             'source_nom', 'jours_restants', 'statut', 'mode_acquisition'
         )
         read_only_fields = ('id', 'mode_acquisition')
+        extra_kwargs = {
+            'mode_acquisition': {'read_only': True},  # Empêche la modification par l'API normale
+        }
 
     def get_url_tdr(self, obj):
-        """Retourne l'URL TDR uniquement si l'utilisateur est authentifié"""
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.url_tdr
@@ -186,72 +202,134 @@ class AppelOffreSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
-# PROFIL EXPERT - CHAMPS VALIDES UNIQUEMENT
+# PROFIL EXPERT (avec domaines de compétence et CV)
 # =============================================================================
 
 class ProfilExpertSerializer(serializers.ModelSerializer):
-    # ✅ Champs délégués à l'utilisateur (lecture seule)
-    telephone = serializers.SerializerMethodField()
-    pays = serializers.SerializerMethodField()
+    """Serializer complet pour le profil Expert"""
+    
+    # Informations utilisateur (lecture seule)
+    email = serializers.EmailField(source='utilisateur.email', read_only=True)
+    first_name = serializers.CharField(source='utilisateur.first_name', read_only=True)
+    last_name = serializers.CharField(source='utilisateur.last_name', read_only=True)
+    date_naissance = serializers.DateField(source='utilisateur.date_naissance', read_only=True)
+    genre = serializers.CharField(source='utilisateur.genre', read_only=True)
+    telephone = serializers.CharField(source='utilisateur.telephone', read_only=True)
+    adresse = serializers.CharField(source='utilisateur.adresse', read_only=True)
+    
+    complet_pourcentage = serializers.SerializerMethodField()
     
     class Meta:
         model = ProfilExpert
         fields = [
-            'id', 'utilisateur', 
-            'cv_fichier', 
-            'competences', 
-            'experience', 
-            'disponibilite', 
-            'alerte_active',
-            'date_creation',
-            # Champs délégués (lecture seule)
-            'telephone', 'pays'
+            'id',
+            # Informations utilisateur
+            'email', 'first_name', 'last_name', 'date_naissance', 'genre',
+            'telephone', 'adresse',
+            # Profil expert
+            'domaines_competence', 'autres_competences',
+            'cv_fichier', 'disponible',
+            'date_creation', 'date_mise_a_jour',
+            'complet_pourcentage'
         ]
-        read_only_fields = ['id', 'utilisateur', 'date_creation', 'telephone', 'pays']
+        read_only_fields = ['id', 'date_creation', 'date_mise_a_jour', 'email', 
+                           'first_name', 'last_name', 'date_naissance', 'genre',
+                           'telephone', 'adresse']
         extra_kwargs = {'cv_fichier': {'required': False}}
     
-    def get_telephone(self, obj):
-        user = getattr(obj, 'utilisateur', None)
-        return getattr(user, 'telephone', '') if user else ''
+    def get_complet_pourcentage(self, obj):
+        total = 0
+        filled = 0
+        
+        # CV (obligatoire)
+        total += 40
+        if obj.cv_fichier:
+            filled += 40
+        
+        # Domaines de compétence (obligatoire)
+        total += 40
+        if obj.domaines_competence:
+            filled += 40
+        
+        # Disponibilité
+        total += 20
+        if obj.disponible is not None:
+            filled += 20
+        
+        return int((filled / total) * 100) if total > 0 else 0
     
-    def get_pays(self, obj):
-        user = getattr(obj, 'utilisateur', None)
-        if user and hasattr(user, 'pays'):
-            pays = user.pays
-            return str(pays) if pays else ''
-        return ''
+    def validate_cv_fichier(self, value):
+        """Validation du fichier CV"""
+        if value:
+            import os
+            ext = os.path.splitext(value.name)[1].lower()
+            if ext not in ['.pdf', '.doc', '.docx']:
+                raise serializers.ValidationError("Format de fichier non supporté. Utilisez PDF, DOC ou DOCX.")
+        return value
 
 
 # =============================================================================
-# BUREAU D'ÉTUDE - PARALLÈLE À EXPERT
+# PROFIL BUREAU (nom, pays, adresse, domaine, email, numéro - pas de CV)
 # =============================================================================
 
 class BureauEtudeSerializer(serializers.ModelSerializer):
-    telephone = serializers.SerializerMethodField()
-    pays = serializers.SerializerMethodField()
+    """Serializer complet pour le profil Bureau d'Étude"""
+    
+    # Informations du gestionnaire
+    email_gestionnaire = serializers.EmailField(source='gestionnaire.email', read_only=True)
+    nom_gestionnaire = serializers.SerializerMethodField()
+    
+    complet_pourcentage = serializers.SerializerMethodField()
     
     class Meta:
         model = BureauEtude
         fields = [
-            'id', 'gestionnaire',
-            'nom_structure',
-            'cv_fichier',
-            'date_creation',
-            'telephone', 'pays'
+            'id',
+            # Gestionnaire
+            'email_gestionnaire', 'nom_gestionnaire',
+            # Structure
+            'nom_structure', 'pays', 'adresse', 'domaine_activite',
+            'email_contact', 'telephone', 'site_web',
+            'date_creation', 'date_mise_a_jour',
+            'complet_pourcentage'
         ]
-        read_only_fields = ['id', 'gestionnaire', 'date_creation', 'telephone', 'pays']
-        extra_kwargs = {'cv_fichier': {'required': False}}
+        read_only_fields = ['id', 'date_creation', 'date_mise_a_jour', 
+                           'email_gestionnaire', 'nom_gestionnaire']
     
-    def get_telephone(self, obj):
-        user = getattr(obj, 'gestionnaire', None)
-        return getattr(user, 'telephone', '') if user else ''
+    def get_nom_gestionnaire(self, obj):
+        user = obj.gestionnaire
+        return f"{user.first_name} {user.last_name}".strip()
     
-    def get_pays(self, obj):
-        user = getattr(obj, 'gestionnaire', None)
-        if user and hasattr(user, 'pays'):
-            pays = user.pays
-            return str(pays) if pays else ''
-        return ''
+    def get_complet_pourcentage(self, obj):
+        total = 0
+        filled = 0
+        
+        # Nom de la structure
+        total += 20
+        if obj.nom_structure:
+            filled += 20
+        
+        # Email de contact
+        total += 20
+        if obj.email_contact:
+            filled += 20
+        
+        # Téléphone
+        total += 20
+        if obj.telephone:
+            filled += 20
+        
+        # Adresse
+        total += 20
+        if obj.adresse:
+            filled += 20
+        
+        # Domaine d'activité
+        total += 20
+        if obj.domaine_activite:
+            filled += 20
+        
+        return int((filled / total) * 100) if total > 0 else 0
 
 
 # =============================================================================
@@ -259,10 +337,15 @@ class BureauEtudeSerializer(serializers.ModelSerializer):
 # =============================================================================
 
 class CritereRechercheSerializer(serializers.ModelSerializer):
+    mots_cles_list = serializers.SerializerMethodField()
+    
     class Meta:
         model = CritereRecherche
         fields = '__all__'
-        read_only_fields = ('id', 'utilisateur')
+        read_only_fields = ('id', 'utilisateur', 'last_notified')
+    
+    def get_mots_cles_list(self, obj):
+        return obj.get_mots_cles_list()
 
 
 class NewsletterSubscriptionSerializer(serializers.ModelSerializer):
@@ -275,4 +358,166 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = '__all__'
-        read_only_fields = ('id', 'envoyee_le')
+        read_only_fields = ('id', 'date_envoi')
+
+
+# offres/serializers.py - Ajouter
+
+class MessageSerializer(serializers.ModelSerializer):
+    expediteur_nom = serializers.SerializerMethodField()
+    destinataire_nom = serializers.SerializerMethodField()
+    expediteur_email = serializers.SerializerMethodField()
+    destinataire_email = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Message
+        fields = '__all__'
+        read_only_fields = ('id', 'date_envoi', 'est_lu', 'expediteur')
+    
+    def get_expediteur_nom(self, obj):
+        return f"{obj.expediteur.first_name} {obj.expediteur.last_name}".strip()
+    
+    def get_destinataire_nom(self, obj):
+        return f"{obj.destinataire.first_name} {obj.destinataire.last_name}".strip()
+    
+    def get_expediteur_email(self, obj):
+        return obj.expediteur.email
+    
+    def get_destinataire_email(self, obj):
+        return obj.destinataire.email
+    
+
+
+# offres/serializers.py - Ajouter ces serializers à la fin du fichier
+
+# =============================================================================
+# ADMIN - SERIALIZERS
+# =============================================================================
+
+class HistoriqueConnexionSerializer(serializers.ModelSerializer):
+    """Serializer pour l'historique des connexions"""
+    utilisateur_email = serializers.EmailField(source='utilisateur.email', read_only=True)
+    utilisateur_nom = serializers.SerializerMethodField()
+    utilisateur_role = serializers.CharField(source='utilisateur.role', read_only=True)
+    
+    class Meta:
+        model = HistoriqueConnexion
+        fields = [
+            'id', 'utilisateur', 'utilisateur_email', 'utilisateur_nom', 
+            'utilisateur_role', 'date_connexion', 'ip_address', 'user_agent'
+        ]
+        read_only_fields = ('id', 'date_connexion')
+    
+    def get_utilisateur_nom(self, obj):
+        return f"{obj.utilisateur.first_name} {obj.utilisateur.last_name}".strip() or obj.utilisateur.email
+
+
+class SuggestionOffreSerializer(serializers.ModelSerializer):
+    """Serializer pour les suggestions d'experts"""
+    expert_nom = serializers.SerializerMethodField()
+    expert_email = serializers.EmailField(source='expert.utilisateur.email', read_only=True)
+    expert_telephone = serializers.CharField(source='expert.utilisateur.telephone', read_only=True)
+    offre_titre = serializers.CharField(source='offre.titre', read_only=True)
+    offre_organisme = serializers.CharField(source='offre.organisme', read_only=True)
+    offre_date_cloture = serializers.DateField(source='offre.date_cloture', read_only=True)
+    
+    class Meta:
+        model = SuggestionOffre
+        fields = [
+            'id', 'expert', 'expert_nom', 'expert_email', 'expert_telephone',
+            'offre', 'offre_titre', 'offre_organisme', 'offre_date_cloture',
+            'date_suggestion', 'commentaire_admin', 'est_consulte_par_expert'
+        ]
+        read_only_fields = ('id', 'date_suggestion')
+    
+    def get_expert_nom(self, obj):
+        return f"{obj.expert.utilisateur.first_name} {obj.expert.utilisateur.last_name}".strip() or obj.expert.utilisateur.email
+
+
+class AdminUserDetailSerializer(serializers.ModelSerializer):
+    """Serializer détaillé pour l'admin (avec plus d'informations)"""
+    profil_expert = serializers.SerializerMethodField()
+    bureau_etude = serializers.SerializerMethodField()
+    dernieres_connexions = serializers.SerializerMethodField()
+    nombre_connexions = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Utilisateur
+        fields = [
+            'id', 'email', 'first_name', 'last_name', 'role', 'telephone', 
+            'pays', 'adresse', 'date_naissance', 'genre', 'is_active', 
+            'is_staff', 'date_joined', 'last_login', 'profil_expert', 
+            'bureau_etude', 'dernieres_connexions', 'nombre_connexions'
+        ]
+        read_only_fields = ('id', 'date_joined', 'last_login')
+    
+    def get_profil_expert(self, obj):
+        if obj.role == 'EXPERT' and hasattr(obj, 'profil_expert'):
+            try:
+                return {
+                    'id': obj.profil_expert.id,
+                    'domaines_competence': obj.profil_expert.domaines_competence,
+                    'cv_fichier': obj.profil_expert.cv_fichier.url if obj.profil_expert.cv_fichier else None,
+                    'disponible': obj.profil_expert.disponible,
+                    'date_creation': obj.profil_expert.date_creation
+                }
+            except:
+                return None
+        return None
+    
+    def get_bureau_etude(self, obj):
+        if obj.role == 'BUREAU' and hasattr(obj, 'bureau_etude'):
+            try:
+                return {
+                    'id': obj.bureau_etude.id,
+                    'nom_structure': obj.bureau_etude.nom_structure,
+                    'domaine_activite': obj.bureau_etude.domaine_activite,
+                    'email_contact': obj.bureau_etude.email_contact,
+                    'telephone': obj.bureau_etude.telephone,
+                    'adresse': obj.bureau_etude.adresse
+                }
+            except:
+                return None
+        return None
+    
+    def get_dernieres_connexions(self, obj):
+        from .models import HistoriqueConnexion
+        dernieres = HistoriqueConnexion.objects.filter(utilisateur=obj).order_by('-date_connexion')[:5]
+        return [
+            {
+                'date': conn.date_connexion,
+                'ip': conn.ip_address
+            } for conn in dernieres
+        ]
+    
+    def get_nombre_connexions(self, obj):
+        from .models import HistoriqueConnexion
+        return HistoriqueConnexion.objects.filter(utilisateur=obj).count()
+
+
+class AdminStatistiquesSerializer(serializers.Serializer):
+    """Serializer pour les statistiques de l'admin dashboard"""
+    total_offres = serializers.IntegerField()
+    offres_scrapees = serializers.IntegerField()
+    offres_manuelles = serializers.IntegerField()
+    offres_actives = serializers.IntegerField()
+    total_utilisateurs = serializers.IntegerField()
+    experts = serializers.IntegerField()
+    bureaux = serializers.IntegerField()
+    admins = serializers.IntegerField()
+    nouveaux_utilisateurs_30j = serializers.IntegerField()
+    connexions_aujourdhui = serializers.IntegerField()
+    connexions_semaine = serializers.IntegerField()
+    messages_non_lus = serializers.IntegerField()
+    messages_totaux = serializers.IntegerField()
+    suggestions_envoyees = serializers.IntegerField()
+    suggestions_consultees = serializers.IntegerField()
+
+
+# offres/serializers.py - Ajoute cette classe
+# offres/serializers.py - Ajoute à la fin
+class SourceScrapingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SourceScraping
+        fields = ['id', 'nom', 'url_racine', 'frequence_maj', 'est_actif', 'last_scraped', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'last_scraped', 'created_at', 'updated_at']

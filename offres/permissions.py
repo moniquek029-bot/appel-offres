@@ -12,7 +12,7 @@ class IsExpert(permissions.BasePermission):
         # 1. Doit être authentifié
         if not request.user or not request.user.is_authenticated:
             if settings.DEBUG:
-                print(f" Permission refusée : utilisateur non authentifié")
+                print(f"❌ Permission refusée : utilisateur non authentifié")
             return False
         
         # 2. Vérifier le rôle (tolère 'EXPERT', 'expert', 'Expert')
@@ -22,7 +22,7 @@ class IsExpert(permissions.BasePermission):
         
         # Debug détaillé en développement
         if settings.DEBUG:
-            print(f" [IsExpert] Debug:")
+            print(f"🔍 [IsExpert] Debug:")
             print(f"    User: {request.user.email if hasattr(request.user, 'email') else request.user}")
             print(f"    Role brut: '{user_role}'")
             print(f"    Role upper: '{role_upper}'")
@@ -50,8 +50,8 @@ class IsAdmin(permissions.BasePermission):
 
 class IsAuthenticatedOrReadOnlyPublic(permissions.BasePermission):
     """
-    Lecture publique, écriture réservée aux authentifiés.
-    Utilisé pour les offres : tout le monde peut consulter, seuls les connectés voient les détails.
+    ✅ CORRIGÉ : Lecture publique, écriture réservée aux authentifiés.
+    Utilisé pour les offres : tout le monde peut consulter.
     """
     
     def has_permission(self, request, view):
@@ -60,10 +60,36 @@ class IsAuthenticatedOrReadOnlyPublic(permissions.BasePermission):
             return True
         # Écriture : doit être authentifié
         return request.user and request.user.is_authenticated
+    
+    def has_object_permission(self, request, view, obj):
+        """Permission sur l'objet lui-même"""
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return request.user and request.user.is_authenticated
 
 
 class IsVisitorOrAuthenticated(permissions.BasePermission):
-    """Autorise les visiteurs ET les utilisateurs authentifiés (pour newsletter, etc.)"""
+    """
+    ✅ AJOUTÉ : Autorise les visiteurs NON connectés (lecture) ET les utilisateurs authentifiés.
+    Pour newsletter, consultation d'offres, etc.
+    """
     
     def has_permission(self, request, view):
-        return True  # Toujours autorisé
+        # Lecture : toujours autorisé (visiteur ou authentifié)
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        # Écriture : nécessite authentification
+        return request.user and request.user.is_authenticated
+
+
+class IsVisitor(permissions.BasePermission):
+    """
+    ✅ AJOUTÉ : Permission pour les visiteurs non connectés
+    - Consultation des offres (lecture seule)
+    - Inscription newsletter
+    """
+    def has_permission(self, request, view):
+        # Lecture publique autorisée
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return False

@@ -1,3 +1,4 @@
+# offres/models.py
 from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.validators import EmailValidator
@@ -7,13 +8,23 @@ from django_countries.fields import CountryField
 # =============================================================================
 # MODULE 1 : GESTION DES COMPTES ET AUTHENTIFICATION
 # =============================================================================
+# offres/models.py - Modifier UtilisateurManager
 
 class UtilisateurManager(BaseUserManager):
-    def create_user(self, email, first_name, last_name, password=None, **extra_fields):
+    def create_user(self, email, first_name, last_name, password=None, adresse='', 
+                    date_naissance=None, genre='', **extra_fields):
         if not email:
             raise ValueError("L'adresse email est requise")
         email = self.normalize_email(email)
-        user = self.model(email=email, first_name=first_name, last_name=last_name, **extra_fields)
+        user = self.model(
+            email=email, 
+            first_name=first_name, 
+            last_name=last_name,
+            adresse=adresse,
+            date_naissance=date_naissance,
+            genre=genre,
+            **extra_fields
+        )
         user.set_password(password)
         user.save(using=self._db)
         return user
@@ -38,7 +49,6 @@ class Utilisateur(AbstractUser):
         ('EXPERT', 'Expert'),
         ('BUREAU', 'Bureau d\'étude / Entreprise'),
     ]
-    # ✅ Correction : défaut cohérent avec les choix
     role = models.CharField(max_length=20, choices=CHOIX_ROLES, default='EXPERT')
     
     telephone = models.CharField(max_length=20, blank=True, verbose_name="Téléphone")
@@ -51,7 +61,6 @@ class Utilisateur(AbstractUser):
     REQUIRED_FIELDS = ['first_name', 'last_name']
     objects = UtilisateurManager()
 
-    # ✅ Correction : utilisait self.username qui est None → crash
     def __str__(self):
         return f"{self.email} ({self.get_role_display()})"
 
@@ -103,7 +112,6 @@ class AppelOffre(models.Model):
     date_publication = models.DateField()
     date_cloture = models.DateField()
     
-    # ✅ NOUVEAU : Séparation URL source (page de listing) et URL TDR (document)
     url_source = models.URLField(
         max_length=500, blank=True, null=True,
         help_text="Page web où l'offre est listée"
@@ -123,7 +131,7 @@ class AppelOffre(models.Model):
 
     class Meta:
         db_table = "Appel_Offre"
-        verbose_name = "Appels d\ Offres"
+        verbose_name = "Appels d'Offres"
         ordering = ['-date_publication']
         indexes = [
             models.Index(fields=['statut', 'date_cloture']),
@@ -135,39 +143,171 @@ class AppelOffre(models.Model):
 
 
 # =============================================================================
-# MODULE 4 : CVTHÈQUE, ALERTES & PROFILS
+# MODULE 4 : PROFILS - EXPERT (avec CV, compétences, etc.)
 # =============================================================================
 
 class ProfilExpert(models.Model):
-    utilisateur = models.OneToOneField(Utilisateur, on_delete=models.CASCADE, limit_choices_to={'role': 'EXPERT'})
-    domaine_competence = models.CharField(max_length=255, help_text="Ex: Infrastructures, IT, Finance")
-    cv_fichier = models.FileField(upload_to='cv_experts/', verbose_name="CV (PDF)")
+    """
+    Profil Expert - Conforme cahier des charges:
+    - Nom, prénom (dans Utilisateur)
+    - Date de naissance, genre (dans Utilisateur)
+    - Domaine de compétence avec case à cocher
+    - Charger son CV
+    """
+    utilisateur = models.OneToOneField(
+        Utilisateur, 
+        on_delete=models.CASCADE, 
+        limit_choices_to={'role': 'EXPERT'},
+        related_name='profil_expert'
+    )
+    
+    # Domaines de compétence (case à cocher multiple)
+    DOMAINES_COMPETENCE = [
+        ('INFRA', 'Infrastructures et Travaux Publics'),
+        ('IT', 'Informatique et Technologies'),
+        ('FINANCE', 'Finance et Comptabilité'),
+        ('SANTE', 'Santé et Médical'),
+        ('EDUCATION', 'Éducation et Formation'),
+        ('CONSULTING', 'Consulting et Management'),
+        ('ENVIRONNEMENT', 'Environnement et Écologie'),
+        ('AGRICULTURE', 'Agriculture et Développement Rural'),
+    ]
+    
+    domaines_competence = models.CharField(
+        max_length=500, 
+        blank=True,
+        help_text="Sélectionnez vos domaines de compétence"
+    )
+    
+    # Autres compétences (texte libre)
+    autres_competences = models.TextField(blank=True, help_text="Autres compétences")
+    
+    # CV
+    cv_fichier = models.FileField(
+        upload_to='cv_experts/%Y/%m/%d/', 
+        verbose_name="CV (PDF)",
+        blank=True,
+        null=True
+    )
+    
+    # Disponibilité
+    disponible = models.BooleanField(default=True, verbose_name="Disponible pour mission")
+    
+    # Métadonnées
+    date_creation = models.DateTimeField(auto_now_add=True)
     date_mise_a_jour = models.DateTimeField(auto_now=True)
-
+    
     def __str__(self):
-        return f"Dossier Expert : {self.utilisateur.last_name}"
+        return f"Expert: {self.utilisateur.first_name} {self.utilisateur.last_name}"
+    
+    def get_domaines_list(self):
+        """Retourne la liste des domaines sélectionnés"""
+        if self.domaines_competence:
+            return [d.strip() for d in self.domaines_competence.split(',') if d.strip()]
+        return []
+    
+    def profil_complet(self):
+        """Vérifie si le profil expert est complet"""
+        return bool(self.cv_fichier and self.domaines_competence)
 
     class Meta:
         db_table = "Profil_Expert"
         verbose_name = "Profil d'Expert"
 
 
+# =============================================================================
+# MODULE 4b : PROFILS - BUREAU D'ÉTUDE (nom, pays, adresse, domaine, email, numéro)
+# =============================================================================
+
+class BureauEtude(models.Model):
+    """
+    Profil Bureau d'Étude - Conforme cahier des charges:
+    - Nom de la structure
+    - Pays
+    - Adresse
+    - Domaine d'activité
+    - Email de contact
+    - Numéro de téléphone
+    - (Pas de CV, pas de date naissance, pas de genre)
+    """
+    gestionnaire = models.OneToOneField(
+        Utilisateur, 
+        on_delete=models.CASCADE, 
+        limit_choices_to={'role': 'BUREAU'},
+        related_name='bureau_etude'
+    )
+    
+    # Informations de la structure
+    nom_structure = models.CharField(max_length=200, verbose_name="Nom de la structure")
+    pays = CountryField(default='BF', verbose_name="Pays")
+    adresse = models.TextField(verbose_name="Adresse complète")
+    domaine_activite = models.CharField(max_length=200, verbose_name="Domaine d'activité")
+    email_contact = models.EmailField(verbose_name="Email de contact", validators=[EmailValidator()])
+    telephone = models.CharField(max_length=20, verbose_name="Numéro de téléphone")
+    
+    # Site web (optionnel)
+    site_web = models.URLField(blank=True, verbose_name="Site web")
+    
+    # Métadonnées
+    date_creation = models.DateTimeField(auto_now_add=True)
+    date_mise_a_jour = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return self.nom_structure
+    
+    def profil_complet(self):
+        """Vérifie si le profil bureau est complet"""
+        return bool(self.nom_structure and self.email_contact and self.telephone)
+
+    class Meta:
+        db_table = "Bureau_Etude"
+        verbose_name = "Bureau d'étude / Entreprise"
+
+
+# =============================================================================
+# MODULE 5 : CRITÈRES DE RECHERCHE ET ALERTES
+# =============================================================================
+
 class CritereRecherche(models.Model):
     """
-    ✅ Correction : ForeignKey au lieu de OneToOneField pour permettre plusieurs critères par expert
+    Critères de recherche pour les experts (alertes email)
     """
-    utilisateur = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='criteres', limit_choices_to={'role': 'EXPERT'})
-    mots_cles = models.CharField(max_length=255, help_text="Ex: 'Forage', 'Audit informatique'")
-    description_recherchee = models.TextField(blank=True, verbose_name="Description détaillée du besoin")
-    alerte_active = models.BooleanField(default=True)
-
-    def __str__(self):
-        return f"Filtres de {self.utilisateur.email}"
+    FREQUENCE_CHOICES = [
+        ('daily', 'Quotidien'),
+        ('weekly', 'Hebdomadaire'),
+    ]
     
+    utilisateur = models.ForeignKey(
+        Utilisateur, 
+        on_delete=models.CASCADE, 
+        related_name='criteres_recherche',
+        limit_choices_to={'role': 'EXPERT'}
+    )
+    
+    nom_critere = models.CharField(max_length=100, blank=True, help_text="Nom du critère (ex: Offres IT)")
+    mots_cles = models.CharField(max_length=500, help_text="Mots-clés recherchés (séparés par des virgules)")
+    pays = CountryField(default='BF', blank=True, verbose_name="Filtrer par pays")
+    domaines = models.CharField(max_length=500, blank=True, help_text="Domaines recherchés")
+    alerte_active = models.BooleanField(default=True, help_text="Recevoir des alertes email")
+    frequence = models.CharField(max_length=20, choices=FREQUENCE_CHOICES, default='daily')
+    last_notified = models.DateTimeField(null=True, blank=True)
+    
+    date_creation = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"Critères de {self.utilisateur.email}"
+    
+    def get_mots_cles_list(self):
+        return [m.strip() for m in self.mots_cles.split(',') if m.strip()]
+
     class Meta:
         db_table = "Critere_Recherche"
         verbose_name = "Critères de Recherche"
 
+
+# =============================================================================
+# MODULE 6 : NEWSLETTER ET NOTIFICATIONS
+# =============================================================================
 
 class InscriptionNewsletter(models.Model):
     email = models.EmailField(unique=True)
@@ -195,28 +335,9 @@ class Notification(models.Model):
         ordering = ['-date_envoi']
 
 
-class BureauEtude(models.Model):
-    """
-    ✅ Ajout du champ cv_fichier pour l'upload de documents structure
-    """
-    nom_structure = models.CharField(max_length=200)
-    domaine_activite = models.CharField(max_length=200)
-    email_contact = models.EmailField(validators=[EmailValidator()])
-    telephone = models.CharField(max_length=20)
-    cv_fichier = models.FileField(upload_to='cv_bureaux/', null=True, blank=True, verbose_name="Documents structure")
-    gestionnaire = models.OneToOneField(Utilisateur, on_delete=models.CASCADE, limit_choices_to={'role': 'BUREAU'})
-
-    def __str__(self):
-        return self.nom_structure
-    
-    class Meta:
-        db_table = "Bureau_Etude"
-        verbose_name = "Bureau d'étude / Entreprise"
-
-
 class SuggestionOffre(models.Model):
     """
-    ✅ Correction : fusion des deux class Meta en un seul bloc
+    Suggestion d'expert par l'administrateur pour une offre spécifique
     """
     expert = models.ForeignKey(ProfilExpert, on_delete=models.CASCADE, verbose_name="Expert sélectionné")
     offre = models.ForeignKey(AppelOffre, on_delete=models.CASCADE, verbose_name="Offre concernée")
@@ -231,3 +352,53 @@ class SuggestionOffre(models.Model):
 
     def __str__(self):
         return f"Suggestion de {self.expert} pour {self.offre}"
+
+# offres/models.py - Ajouter ce modèle
+
+class Message(models.Model):
+    """
+    Modèle pour la messagerie entre utilisateurs et administrateur
+    """
+    
+    expediteur = models.ForeignKey(
+        Utilisateur, 
+        on_delete=models.CASCADE, 
+        related_name='messages_envoyes'
+    )
+    destinataire = models.ForeignKey(
+        Utilisateur, 
+        on_delete=models.CASCADE, 
+        related_name='messages_recus'
+    )
+    sujet = models.CharField(max_length=200)
+    contenu = models.TextField()
+    est_lu = models.BooleanField(default=False)
+    date_envoi = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = "messages"
+        verbose_name = "Message"
+        ordering = ['-date_envoi']
+    
+    def __str__(self):
+        return f"{self.sujet} - {self.expediteur.email} -> {self.destinataire.email}"
+
+
+#Historique des connexions des utilisateurs (pour sécurité et audit)
+
+class HistoriqueConnexion(models.Model):
+    """
+    Historique des connexions des utilisateurs
+    """
+    utilisateur = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='connexions')
+    date_connexion = models.DateTimeField(auto_now_add=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    
+    class Meta:
+        db_table = "historique_connexions"
+        verbose_name = "Historique de connexion"
+        ordering = ['-date_connexion']
+    
+    def __str__(self):
+        return f"{self.utilisateur.email} - {self.date_connexion}"

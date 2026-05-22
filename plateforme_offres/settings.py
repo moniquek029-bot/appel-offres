@@ -51,13 +51,14 @@ INSTALLED_APPS = [
 #  Configuration Celery CORRECTE pour développement sans Redis
 
 # Broker : utilise la mémoire (léger, sans installation, DEV uniquement)
-CELERY_BROKER_URL = 'memory://'
+CELERY_BROKER_URL = 'redis://localhost:6379/0'  # (optionnel, si vous avez Redis installé)
 CELERY_RESULT_BACKEND = 'django-db'  # Stocke les résultats dans la base Django (via django-celery-results)
 
-# CELERY_BROKER_URL='redis://localhost:6379/0'  # (optionnel, si vous avez Redis installé)
-# CELERY_RESULT_BACKEND='redis://localhost:6379/0'  # (optionnel, pour stocker les résultats dans Redis)
+CELERY_BROKER_URL='redis://localhost:6379/0'  # (optionnel, si vous avez Redis installé)
+CELERY_RESULT_BACKEND='redis://localhost:6379/0'  # (optionnel, pour stocker les résultats dans Redis)
 # Result Backend : stocke les résultats dans la base Django (via django-celery-results)
 CELERY_RESULT_BACKEND = 'django-db'
+CELERY_IMPORTS=('offres.scraping.tasks',)  # Import des tâches pour que Celery les reconnaisse
 
 # Configuration supplémentaire requise
 CELERY_TIMEZONE = 'Africa/Ouagadougou'
@@ -67,10 +68,8 @@ CELERY_RESULT_EXTENDED = True  # Requis pour django-celery-results
 
 # Planning des tâches (inchangé)
 CELERY_BEAT_SCHEDULE = {
-    'scraping-every-12h': {
-        'task': 'offres.scraping.tasks.run_scheduled_scraping_task',
-        'schedule': 43200.0,
-    },
+  
+    
     'archive-expired-daily': {
         'task': 'offres.scraping.tasks.daily_archive_task',
         'schedule': 86400.0,
@@ -230,7 +229,7 @@ REST_FRAMEWORK = {
     ],
 
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 15, # Nombre d'éléments par page pour la pagination
+    'PAGE_SIZE': 10, # Nombre d'éléments par page pour la pagination
 }
 
 # Configuration pour les tokens JWT (si utilisé)
