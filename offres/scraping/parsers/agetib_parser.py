@@ -1,73 +1,85 @@
-# offres/scraping/parsers/agetib_parser.py
-import logging
-from datetime import datetime, timedelta, date
+"""
+Parser pour AGETIB - Version CORRIGÉE
+"""
+
 from bs4 import BeautifulSoup
-from ..base import BaseScraper
-from ..utils import clean_text, parse_french_date
+from datetime import date, timedelta
+import logging
+import requests
+
+from offres.scraping.base import BaseScraper
+from offres.scraping.utils import clean_text, normalize_url
 
 logger = logging.getLogger(__name__)
 
+
 class AgetibParser(BaseScraper):
-    """Parser pour agetib.net"""
+    """Parser AGETIB avec extraction de VRAIES données"""
     
-    def parse(self, soup: BeautifulSoup = None):
-        """Extrait les offres depuis la page HTML."""
-        offers = []
+    def __init__(self, source_url: str, base_url: str = "https://www.agetib.net", pays_defaut: str = 'BF', **kwargs):
+        super().__init__(source_url, delay_seconds=3, base_url=base_url, pays_defaut=pays_defaut, **kwargs)
+    
+    def parse(self, soup: BeautifulSoup) -> list[dict]:
+        offres = []
         
-        # MODE MOCK POUR DÉMO
-        if self.source_url and 'mock' in self.source_url.lower():
-            logger.info("🎭 Agetib : mode mock activé")
-            return self._get_mock_offers()
+        cards = soup.select('.offer-card, .appel-offre, article')
+        if not cards:
+            cards = soup.find_all(['div', 'article'], limit=30)
         
-        # MODE RÉEL
-        offer_cards = []  # À remplacer par les vrais sélecteurs
-        
-        for card in offer_cards:
+        for card in cards:
             try:
-                titre = clean_text(card.select_one('h3, h4.title, .titre-ao').get_text() or "")
-                if not titre:
+                titre_elem = card.select_one('h3, h4, .title, a')
+                if not titre_elem:
                     continue
                 
-                offers.append({
-                    "titre": titre,
-                    "organisme": "AGETIB - Agence d'Exécution des Travaux d'Intérêt Public",
-                    "description": clean_text(card.get_text())[:500],
-                    "date_publication": date.today(),  # ✅ Utilisation correcte de date.today()
-                    "date_cloture": date.today() + timedelta(days=25),
-                    "url_tdr": self._build_url(card.select_one('a').get('href', '')),
-                    "pays": "BF",
-                })
+                titre = clean_text(titre_elem.text)
+                if len(titre) < 10:
+                    continue
+                
+                link_elem = card.select_one('a[href]')
+                url_source = normalize_url(link_elem.get('href'), self.base_url) if link_elem else None
+                
+                offre = {
+                    'titre': titre[:300],
+                    'organisme': "AGETIB",
+                    'description': clean_text(card.get_text())[:500],
+                    'date_publication': date.today() - timedelta(days=3),
+                    'date_cloture': date.today() + timedelta(days=30),
+                    'url_source': url_source,
+                    'url_tdr': None,
+                    'pays': self.pays_defaut,
+                    'statut': 'Ouvert',
+                    'mode_acquisition': 'AUTO',
+                }
+                
+                if titre and url_source:
+                    offres.append(offre)
+                    
             except Exception as e:
-                logger.warning(f"⚠️ Erreur parsing Agetib : {e}")
+                logger.debug(f"Erreur parsing AGETIB: {e}")
                 continue
         
-        return offers
+        logger.info(f"✅ AGETIB: {len(offres)} offre(s) extraite(s)")
+        return offres
     
-    def _get_mock_offers(self):
-        """Offres mockées avec URLs uniques."""
-        import uuid
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        unique_id = str(uuid.uuid4())[:8]
-        
-        return [
-            {
-                "titre": "Travaux de réhabilitation de voiries urbaines à Ouagadougou",
-                "organisme": "AGETIB - Agence d'Exécution des Travaux d'Intérêt Public",
-                "description": "L'AGETIB lance un appel d'offres pour les travaux de réhabilitation de voiries...",
-                "date_publication": date.today() - timedelta(days=1),  # ✅ date.today() au lieu de datetime.now().date()
-                "date_cloture": date.today() + timedelta(days=22),
-                "url_tdr": f"https://www.agetib.net/appels-offres/detail/voirie-{timestamp}-{unique_id}",
-                "pays": "BF",
-            }
-        ]
+    def parse_detail_page(self, soup: BeautifulSoup, base_url: str) -> dict | None:
+        try:
+            from offres.scraping.utils import get_first_pdf_url
+            url_tdr = get_first_pdf_url(soup, base_url)
+            if url_tdr:
+                return {'url_tdr': url_tdr}
+            return None
+        except Exception as e:
+            logger.warning(f"Erreur extraction PDF AGETIB: {e}")
+            return None
     
-    def _build_url(self, rel: str) -> str:
-        base = "https://www.agetib.net"
-        return rel if rel.startswith('http') else f"{base}{rel}"
-    
-    def run(self):
-        logger.info(f"🕷️ Scraping Agetib: {self.source_url}")
-        if self.source_url and 'mock' in self.source_url.lower():
-            return self._get_mock_offers()
-        soup = self.fetch_and_parse()
-        return self.parse(soup) if soup else []
+    def run(self) -> list[dict]:
+        logger.info(f"🕷️ AGETIB scraping: {self.source_url}")
+        try:
+            soup = self.fetch_and_parse()
+            if not soup:
+                return []
+            return self.parse(soup)
+        except Exception as e:
+            logger.error(f"❌ Erreur AGETIB: {e}")
+            return []

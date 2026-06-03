@@ -1,99 +1,211 @@
 // src/components/JobCard.jsx
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
 
 const JobCard = ({ offre }) => {
-  // 🛡️ Protection : si offre est null/undefined, on n'affiche rien
+  const { user } = useAuth();
+  const [downloading, setDownloading] = useState(false);
+  const isMounted = useRef(true);
+  const downloadTimeoutRef = useRef(null);
+  
+  // Vérifier si l'utilisateur est admin
+  const isAdmin = user?.role === 'ADMIN';
+  
+  // Nettoyage au démontage du composant
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+      if (downloadTimeoutRef.current) {
+        clearTimeout(downloadTimeoutRef.current);
+      }
+    };
+  }, []);
+  
   if (!offre || !offre.id) return null;
 
-  // Formatage de date
   const formatDate = (dateStr) => {
     if (!dateStr) return 'Non spécifiée';
-    return new Date(dateStr).toLocaleDateString('fr-FR', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric'
-    });
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffHours = Math.floor((now - date) / (1000 * 60 * 60));
+    if (diffHours < 24) return `il y a ${diffHours} heure${diffHours > 1 ? 's' : ''}`;
+    return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
-  // Calcul des jours restants
   const daysLeft = offre.date_cloture 
     ? Math.ceil((new Date(offre.date_cloture) - new Date()) / (1000 * 60 * 60 * 24))
     : null;
 
-  // ✅ LE RETURN PRINCIPAL (à l'intérieur de la fonction JobCard)
-  return (
-    <div className="card h-100 border-0 shadow-sm hover-shadow">
-      <div className="card-body">
+  // ✅ CORRECTION: Utiliser fichier_pdf_url au lieu de fichier_pdf
+  const handleDownloadPDF = () => {
+    if (downloading) return;
+    
+    setDownloading(true);
+    
+    try {
+      // Priorité au PDF local
+      if (offre.fichier_pdf_url) {
+        window.open(offre.fichier_pdf_url, '_blank', 'noopener,noreferrer');
+      } 
+      // Sinon URL externe
+      else if (offre.url_tdr) {
+        window.open(offre.url_tdr, '_blank', 'noopener,noreferrer');
+      } 
+      else {
+        alert('❌ Aucun PDF disponible pour cette offre');
+      }
+    } catch (err) {
+      console.error('Erreur:', err);
+      alert('❌ Impossible d\'ouvrir le PDF');
+    } finally {
+      downloadTimeoutRef.current = setTimeout(() => {
+        if (isMounted.current) {
+          setDownloading(false);
+        }
+      }, 1000);
+    }
+  };
+
+  // Version avec appel API (fallback)
+  const handleDownloadPDFWithAPI = async () => {
+    if (downloading) return;
+    
+    setDownloading(true);
+    
+    try {
+      const response = await api.get(`/offres/${offre.id}/download-pdf/`, { 
+        responseType: 'blob'
+      });
+      
+      if (!isMounted.current) return;
+      
+      const textResponse = await response.data.text();
+      
+      try {
+        const jsonData = JSON.parse(textResponse);
+        if (jsonData.redirect_url) {
+          window.open(jsonData.redirect_url, '_blank', 'noopener,noreferrer');
+        } else if (jsonData.error) {
+          alert(`❌ ${jsonData.error}`);
+        }
+      } catch {
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `TDR_${offre.id}.pdf`);
+        document.body.appendChild(link);
+        link.click();
         
-        {/* Statut + Pays */}
-        <div className="d-flex justify-content-between align-items-start mb-2">
-          <span className={`badge bg-${offre.statut === 'Ouvert' ? 'success' : 'secondary'}`}>
-            {offre.statut}
-          </span>
-          <small className="text-muted">
-            {offre.pays === 'BF' && '🇧🇫 '} {offre.pays}
-          </small>
-        </div>
+        setTimeout(() => {
+          if (link.parentNode) {
+            link.parentNode.removeChild(link);
+          }
+          window.URL.revokeObjectURL(url);
+        }, 100);
+      }
+    } catch (err) {
+      console.error('Erreur téléchargement:', err);
+      if (isMounted.current) {
+        if (offre.fichier_pdf_url) {
+          window.open(offre.fichier_pdf_url, '_blank', 'noopener,noreferrer');
+        } else if (offre.url_tdr) {
+          window.open(offre.url_tdr, '_blank', 'noopener,noreferrer');
+        } else {
+          alert('❌ Impossible de télécharger le PDF');
+        }
+      }
+    } finally {
+      if (isMounted.current) {
+        downloadTimeoutRef.current = setTimeout(() => {
+          if (isMounted.current) {
+            setDownloading(false);
+          }
+        }, 1000);
+      }
+    }
+  };
 
-        {/* Titre + Organisme */}
-        <h5 className="card-title text-primary mb-1">{offre.titre}</h5>
-        <p className="text-muted small mb-2">{offre.organisme}</p>
+  // Utiliser la version simple par défaut
+  const handleDownload = handleDownloadPDF;
 
-        {/* Description courte */}
-        <p className="card-text small text-secondary mb-3">
-          {offre.description?.substring(0, 120)}...
-        </p>
+  // ✅ CORRECTION: Vérifier correctement la présence d'un PDF
+  const hasPdf = !!(offre.fichier_pdf_url || offre.url_tdr);
+  const isPdfVisible = user && hasPdf;
 
-        {/* Métadonnées */}
-        <div className="d-flex justify-content-between align-items-center small text-muted mb-3">
-          <span>Publiée : {formatDate(offre.date_publication)}</span>
-          {offre.source_origine && (
-            <span className="badge bg-light text-dark border">
-              {offre.source_origine.nom?.substring(0, 15)}...
-            </span>
-          )}
-        </div>
+  return (
+    <div className="card border-0 shadow-sm hover-shadow mb-3">
+      <div className="card-body p-4">
+        <div className="row">
+          <div className="col-md-8">
+            {/* Badges */}
+            <div className="d-flex align-items-center gap-2 mb-2 flex-wrap">
+              <span className="badge bg-primary bg-opacity-10 text-primary px-3 py-2">📄 Appel d'offres</span>
+              
+              {offre.statut === 'Ouvert' && <span className="badge bg-success">Ouvert</span>}
+              
+              {isAdmin && offre.mode_acquisition === 'MANUEL' && (
+                <span className="badge bg-info text-white">✏️ Publié par admin</span>
+              )}
+              
+              {isAdmin && offre.mode_acquisition === 'AUTO' && (
+                <span className="badge bg-secondary text-white">🔄 Scrapé</span>
+              )}
+            </div>
 
-        {/* Deadline + Actions */}
-        <div className="d-flex justify-content-between align-items-center pt-2 border-top">
-          <small className={daysLeft <= 7 ? 'text-danger fw-bold' : 'text-muted'}>
-            Clôture : {formatDate(offre.date_cloture)}
-            {daysLeft > 0 && daysLeft <= 7 && <span className="ms-1">({daysLeft}j)</span>}
-          </small>
-          
-          <div className="d-flex gap-2">
-            {/*  BOUTON TDR : Conditionnel */}
-            {offre.url_tdr ? (
-              <a 
-                href={offre.url_tdr} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="btn btn-sm btn-primary"
-                title="Consulter le TDR sur le site officiel"
-              >
-               Voir le TDR
-              </a>
-            ) : (
-              <button 
-                className="btn btn-sm btn-outline-secondary"
-                disabled
-                title="Connectez-vous pour accéder au lien officiel"
-              >
-                TDR
-              </button>
-            )}
-            
-            {/* Bouton détails */}
-            <Link to={`/offres/${offre.id}`} className="btn btn-sm btn-outline-secondary">
-              📄 Détails
-            </Link>
+            {/* Titre */}
+            <h5 className="card-title fw-bold mb-2">
+              <Link to={`/offres/${offre.id}`} className="text-dark text-decoration-none">
+                {offre.titre}
+              </Link>
+            </h5>
+
+            {/* Description */}
+            <p className="card-text text-secondary small mb-3">
+              {offre.description?.substring(0, 200)}...
+              {offre.description?.length > 200 && (
+                <Link to={`/offres/${offre.id}`} className="text-primary ms-1">
+                  Lire la suite
+                </Link>
+              )}
+            </p>
+
+            {/* Infos */}
+            <div className="d-flex flex-wrap align-items-center gap-3 small text-muted">
+              <span><i className="bi bi-building me-1"></i> {offre.organisme}</span>
+              <span><i className="bi bi-clock me-1"></i> {formatDate(offre.date_publication)}</span>
+              <span className={daysLeft !== null && daysLeft <= 7 ? 'text-danger fw-bold' : ''}>
+                <i className="bi bi-calendar-x me-1"></i> Clôture: {offre.date_cloture ? new Date(offre.date_cloture).toLocaleDateString('fr-FR') : 'Non spécifiée'}
+                {daysLeft !== null && daysLeft > 0 && daysLeft <= 30 && <span className="ms-1">({daysLeft}j)</span>}
+                {daysLeft !== null && daysLeft <= 0 && daysLeft > -30 && <span className="ms-1 text-danger">(Expiré)</span>}
+              </span>
+            </div>
+          </div>
+
+          <div className="col-md-4 text-end mt-3 mt-md-0">
+            <div className="d-flex flex-column gap-2">
+              {/* Bouton Détails */}
+              <Link to={`/offres/${offre.id}`} className="btn btn-outline-primary">
+                🔍 Voir détails
+              </Link>
+              
+             
+              
+              {/* Message si utilisateur non connecté */}
+              {!user && hasPdf && (
+                <small className="text-muted mt-1">
+                  <Link to="/login" className="text-primary">Connectez-vous</Link> pour télécharger le TDR
+                </small>
+              )}
+            </div>
           </div>
         </div>
-        
       </div>
     </div>
   );
-}; // ← ✅ Fermeture CORRECTE de la fonction JobCard (APRÈS le return)
+};
 
 export default JobCard;

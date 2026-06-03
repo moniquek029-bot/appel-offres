@@ -51,12 +51,10 @@ INSTALLED_APPS = [
 #  Configuration Celery CORRECTE pour développement sans Redis
 
 # Broker : utilise la mémoire (léger, sans installation, DEV uniquement)
-CELERY_BROKER_URL = 'redis://localhost:6379/0'  # (optionnel, si vous avez Redis installé)
+CELERY_BROKER_URL = 'memory://'  # (optionnel, si vous avez Redis installé)
 CELERY_RESULT_BACKEND = 'django-db'  # Stocke les résultats dans la base Django (via django-celery-results)
 
-CELERY_BROKER_URL='redis://localhost:6379/0'  # (optionnel, si vous avez Redis installé)
-CELERY_RESULT_BACKEND='redis://localhost:6379/0'  # (optionnel, pour stocker les résultats dans Redis)
-# Result Backend : stocke les résultats dans la base Django (via django-celery-results)
+
 CELERY_RESULT_BACKEND = 'django-db'
 CELERY_IMPORTS=('offres.scraping.tasks',)  # Import des tâches pour que Celery les reconnaisse
 
@@ -235,7 +233,7 @@ REST_FRAMEWORK = {
 # Configuration pour les tokens JWT (si utilisé)
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60), # Durée de vie du token d'accès
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1), # Durée de vie du token de rafraîchissement
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7), # Durée de vie du token de rafraîchissement
     'ROTATE_REFRESH_TOKENS': True, # Permet de faire tourner les tokens de rafraîchissement pour plus de sécurité
     'BLACKLIST_AFTER_ROTATION': True, # Noircit les tokens de rafraîchissement après leur utilisation
     'ALGORITHM': 'HS256', # Algorithme de signature du token

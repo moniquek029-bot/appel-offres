@@ -1,102 +1,206 @@
 // src/pages/Home.jsx
 import React, { useState, useEffect } from 'react';
-import SearchFilters from '../components/SearchFilters';
 import JobCard from '../components/JobCard';
+import VerticalFilters from '../components/VerticalFilters';
+import SearchBar from '../components/SearchBar';
 import { searchOffres } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 const Home = () => {
+  const { user } = useAuth();
   const [offres, setOffres] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [filters, setFilters] = useState({
+    keyword: '',
+    pays: '',
+    max_days: '',
+    domaine: '',
+    structure: '',
+  });
 
-  const fetchOffres = async ({ keyword = '', country = '' } = {}) => {
+  const fetchOffres = async (page = 1, newFilters = null) => {
     try {
       setLoading(true);
       setError(null);
       
-      const { results, count } = await searchOffres({ keyword, country });
-      // ✅ Protection : toujours un tableau
-      setOffres(Array.isArray(results) ? results : []);
+      const currentFilters = newFilters || filters;
+      const response = await searchOffres({ 
+        keyword: currentFilters.keyword,
+        pays: currentFilters.pays,
+        max_days: currentFilters.max_days,
+        page 
+      });
       
+      setOffres(response.results || []);
+      setTotalCount(response.count || 0);
+      
+      const itemsPerPage = 10;
+      const pages = Math.ceil((response.count || 0) / itemsPerPage);
+      setTotalPages(pages);
+      setCurrentPage(page);
+      
+      if (newFilters) {
+        setFilters(newFilters);
+      }
     } catch (err) {
-      console.error('❌ Erreur API:', err);
+      console.error('Erreur API:', err);
       setError('Impossible de charger les offres.');
-      setOffres([]); // ✅ État sécurisé en cas d'erreur
+      setOffres([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchOffres();
+    fetchOffres(1);
   }, []);
 
+  const handleSearch = (searchKeyword) => {
+    const newFilters = { ...filters, keyword: searchKeyword };
+    setFilters(newFilters);
+    fetchOffres(1, newFilters);
+  };
+
+  const handleFilterChange = (newFilters) => {
+    const updatedFilters = { ...filters, keyword: filters.keyword, ...newFilters };
+    setFilters(updatedFilters);
+    fetchOffres(1, updatedFilters);
+  };
+
+  const handlePageChange = (page) => {
+    if (page >= 1 && page <= totalPages) {
+      fetchOffres(page);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 10;
+    
+    if (totalPages <= maxVisible) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      if (currentPage <= 6) {
+        for (let i = 1; i <= 8; i++) pages.push(i);
+        pages.push('...');
+        pages.push(totalPages);
+      } else if (currentPage >= totalPages - 5) {
+        pages.push(1);
+        pages.push('...');
+        for (let i = totalPages - 7; i <= totalPages; i++) pages.push(i);
+      } else {
+        pages.push(1);
+        pages.push('...');
+        for (let i = currentPage - 2; i <= currentPage + 2; i++) pages.push(i);
+        pages.push('...');
+        pages.push(totalPages);
+      }
+    }
+    return pages;
+  };
+
   return (
-    <div className="min-vh-100 d-flex flex-column">
-      {/* Bannière */}
-      <div className="bg-primary text-white py-4 text-center">
-        <div className="container">
-          <h1 className="fw-bold">📢 Appels d'Offres</h1>
-          <p className="mb-0">Trouvez et consultez les marchés publics du Burkina Faso</p>
+    <div className="min-vh-100 d-flex flex-column bg-light">
+      
+      {/* ✅ BANNIÈRE SUPPRIMÉE - plus de texte "Appels d'offres publics" */}
+
+      {/* Barre de recherche en haut */}
+      <SearchBar onSearch={handleSearch} />
+
+      {/* Layout: Filtres (gauche) + Résultats (droite) - EN FLEX ROW */}
+      <div className="container py-4">
+        <div className="row g-4">
+          
+          {/* Colonne des filtres - 1/4 de largeur */}
+          <div className="col-lg-3 col-md-4">
+            <div className="sticky-top" style={{ top: '20px' }}>
+              <VerticalFilters onFilterChange={handleFilterChange} />
+            </div>
+          </div>
+          
+          {/* Colonne des résultats - 3/4 de largeur */}
+          <div className="col-lg-9 col-md-8">
+            
+            {/* En-tête des résultats */}
+            <div className="d-flex justify-content-between align-items-center mb-4">
+              <div>
+                <h4 className="mb-0 fw-bold">Appels d'offres disponibles</h4>
+                <p className="text-muted small mb-0 mt-1">
+                  {totalCount} offre(s) trouvée(s) - Page {currentPage} / {totalPages}
+                </p>
+              </div>
+            </div>
+
+            {error && (
+              <div className="alert alert-danger alert-dismissible fade show">
+                ⚠️ {error}
+                <button type="button" className="btn-close" onClick={() => { setError(null); fetchOffres(1); }}></button>
+              </div>
+            )}
+
+            {loading ? (
+              <div className="text-center py-5">
+                <div className="spinner-border text-primary" role="status">
+                  <span className="visually-hidden">Chargement...</span>
+                </div>
+              </div>
+            ) : offres.length > 0 ? (
+              <>
+                {offres.map((offre) => (
+                  <JobCard key={offre.id} offre={offre} />
+                ))}
+              </>
+            ) : (
+              <div className="alert alert-info text-center py-5">
+                <h5 className="mt-3">Aucune offre trouvée</h5>
+                <button className="btn btn-outline-primary mt-2" onClick={() => {
+                  const resetFilters = { keyword: '', pays: '', max_days: '', domaine: '', structure: '' };
+                  setFilters(resetFilters);
+                  fetchOffres(1, resetFilters);
+                }}>
+                  Afficher toutes les offres
+                </button>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <nav className="mt-5" aria-label="Pagination des offres">
+                <ul className="pagination justify-content-center flex-wrap">
+                  <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+                    <button className="page-link" onClick={() => handlePageChange(currentPage - 1)}>
+                      ← Précédent
+                    </button>
+                  </li>
+                  
+                  {getPageNumbers().map((page, index) => (
+                    <li key={index} className={`page-item ${page === currentPage ? 'active' : ''} ${page === '...' ? 'disabled' : ''}`}>
+                      {page === '...' ? (
+                        <span className="page-link">...</span>
+                      ) : (
+                        <button className="page-link" onClick={() => handlePageChange(page)}>
+                          {page}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                  
+                  <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+                    <button className="page-link" onClick={() => handlePageChange(currentPage + 1)}>
+                      Suivant →
+                    </button>
+                  </li>
+                </ul>
+              </nav>
+            )}
+          </div>
         </div>
       </div>
-
-      {/* Filtres */}
-      <SearchFilters onSearch={fetchOffres} />
-
-      {/* Contenu principal */}
-      <main className="flex-grow-1 py-4 bg-light">
-        <div className="container">
-          
-          {/* Message d'erreur */}
-          {error && (
-            <div className="alert alert-danger alert-dismissible fade show" role="alert">
-              ⚠️ {error}
-              <button type="button" className="btn-close" onClick={() => { setError(null); fetchOffres({}); }}></button>
-            </div>
-          )}
-
-          {/* État de chargement */}
-          {loading ? (
-            <div className="text-center py-5">
-              <div className="spinner-border text-primary" role="status">
-                <span className="visually-hidden">Chargement...</span>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* En-tête de résultats */}
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <h5 className="mb-0">📋 Résultats</h5>
-                <span className="badge bg-secondary">{offres.length} offre(s)</span>
-              </div>
-
-              {/* Liste des offres */}
-              {offres.length > 0 ? (
-                <div className="row g-3">
-                  {offres.map((offre) => (
-                    // ✅ KEY STABLE : jamais d'index ou Math.random()
-                    <div className="col-md-6 col-lg-4" key={offre?.id || `offre-${offre?.titre?.slice(0,10)}`}>
-                      <JobCard offre={offre} />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="alert alert-info text-center">
-                  🔍 Aucune offre trouvée pour ces critères.
-                  <br />
-                  <button 
-                    className="btn btn-link p-0 mt-1" 
-                    onClick={() => fetchOffres({ keyword: '', country: '' })}
-                  >
-                    Afficher toutes les offres
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </main>
     </div>
   );
 };

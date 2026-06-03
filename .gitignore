@@ -1,8 +1,73 @@
+# =============================================================================
+# ENVIRONNEMENT VIRTUEL & PYTHON
+# =============================================================================
 .venv/
-__pycache__/
+venv/
+env/
 *.pyc
-.env
-db.sqlite3
-celerybeat-schedule
+*.pyo
+*.pyd
+__pycache__/
 *.pkl
+
+# =============================================================================
+# DJANGO / BACKEND
+# =============================================================================
+.env
+*.env.local
+*.env.production
+celerybeat-schedule
+celerybeat.pid
+*.log
+logs/
+
+# Base de données (tu utilises MySQL via XAMPP, mais garde au cas où)
+db.sqlite3
+*.sqlite3
+*.db
+*.sql
+dump_*.sql
+
+# Media uploads (optionnel : ignore si tu veux pousser les fichiers de démo)
+media/
+media/uploads/
+media/documents/
+
+# =============================================================================
+# FRONTEND - React/Node
+# =============================================================================
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+frontend/.npm
+frontend/.yarn
+frontend/*.log
+frontend/src/bootstrap.js
+
+# =============================================================================
+# IDE & OS
+# =============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# =============================================================================
+# FICHIERS DE DEBUG/TEST (à ne pas pousser)
+# =============================================================================
 email_preview.html
+debug_*.html
+test_*.py
+*.coverage
+htmlcov/
+
+# =============================================================================
+# SECRETS & CONFIG SENSIBLE
+# =============================================================================
+*.pem
+*.key
+*.crt
+secrets.json
+config_local.py

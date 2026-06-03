@@ -167,30 +167,35 @@ class ChangePasswordSerializer(serializers.Serializer):
 # =============================================================================
 # APPELS D'OFFRES
 # =============================================================================
+# offres/serializers.py - Modifier AppelOffreSerializer
 
 class AppelOffreSerializer(serializers.ModelSerializer):
     source_nom = serializers.ReadOnlyField(source='source_origine.nom')
     jours_restants = serializers.SerializerMethodField()
     url_source = serializers.URLField(read_only=True)
     url_tdr = serializers.SerializerMethodField()
+    fichier_pdf_url = serializers.SerializerMethodField()  # ✅ AJOUTER
 
     class Meta:
         model = AppelOffre
         fields = (
             'id', 'titre', 'organisme', 'description', 'pays', 
             'date_publication', 'date_cloture', 
-            'url_source', 'url_tdr',
+            'url_source', 'url_tdr', 'fichier_pdf_url',  # ✅ AJOUTER fichier_pdf_url
             'source_nom', 'jours_restants', 'statut', 'mode_acquisition'
         )
         read_only_fields = ('id', 'mode_acquisition')
-        extra_kwargs = {
-            'mode_acquisition': {'read_only': True},  # Empêche la modification par l'API normale
-        }
 
     def get_url_tdr(self, obj):
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.url_tdr
+        return None
+    
+    def get_fichier_pdf_url(self, obj):
+        """Retourne l'URL du fichier PDF local si disponible"""
+        if obj.fichier_pdf and obj.fichier_pdf.url:
+            return obj.fichier_pdf.url
         return None
 
     def get_jours_restants(self, obj):
@@ -199,7 +204,6 @@ class AppelOffreSerializer(serializers.ModelSerializer):
             delta = obj.date_cloture - timezone.now().date()
             return max(0, delta.days)
         return None
-
 
 # =============================================================================
 # PROFIL EXPERT (avec domaines de compétence et CV)
@@ -354,14 +358,23 @@ class NewsletterSubscriptionSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+# offres/serializers.py
+
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
-        fields = '__all__'
-        read_only_fields = ('id', 'date_envoi')
+        fields = ['id', 'destinataire', 'offre_liee', 'objet', 'message', 'date_envoi', 'est_lue']
+        read_only_fields = ['destinataire', 'date_envoi']
 
 
 # offres/serializers.py - Ajouter
+
+
+# Ajoutez ce serializer pour les utilisateurs
+class UserSimpleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'nom', 'first_name', 'last_name', 'username']
 
 class MessageSerializer(serializers.ModelSerializer):
     expediteur_nom = serializers.SerializerMethodField()
@@ -375,19 +388,22 @@ class MessageSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'date_envoi', 'est_lu', 'expediteur')
     
     def get_expediteur_nom(self, obj):
-        return f"{obj.expediteur.first_name} {obj.expediteur.last_name}".strip()
+        if obj.expediteur:  # ← AJOUTER CE TEST
+            nom = f"{obj.expediteur.first_name} {obj.expediteur.last_name}".strip()
+            return nom if nom else obj.expediteur.email
+        return "Système"  # Valeur par défaut
     
     def get_destinataire_nom(self, obj):
-        return f"{obj.destinataire.first_name} {obj.destinataire.last_name}".strip()
+        if obj.destinataire:  # ← AJOUTER CE TEST
+            nom = f"{obj.destinataire.first_name} {obj.destinataire.last_name}".strip()
+            return nom if nom else obj.destinataire.email
+        return "Système"  # Valeur par défaut
     
     def get_expediteur_email(self, obj):
-        return obj.expediteur.email
+        return obj.expediteur.email if obj.expediteur else None  # ← AJOUTER CE TEST
     
     def get_destinataire_email(self, obj):
-        return obj.destinataire.email
-    
-
-
+        return obj.destinataire.email if obj.destinataire else None  # ← AJOUTER CE TEST
 # offres/serializers.py - Ajouter ces serializers à la fin du fichier
 
 # =============================================================================

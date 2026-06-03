@@ -4,22 +4,22 @@ Vues avec contrôle d'accès par rôle et gestion des profils obligatoires.
 ✅ VERSION CORRIGÉE : Plus de doublons, scraping synchrone, imports organisés
 """
 
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.conf import settings
 from django.db.models import Q, Count
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.contrib.admin.models import LogEntry
+from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 
 from datetime import timedelta
 import traceback
+import os
+
 from offres.scraping.tasks import run_scheduled_scraping_task
-from django.contrib.contenttypes.models import ContentType
 
-
-
-
-from rest_framework import request, viewsets, generics, status, permissions
+from rest_framework import viewsets, generics, status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.decorators import action
@@ -27,6 +27,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
+from django.http import FileResponse, Http404
 
 # =============================================================================
 # IMPORTS DES MODELS
@@ -71,11 +72,10 @@ class RegisterView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         
-        # Création automatique du profil lié
         if user.role == 'EXPERT':
-            ProfilExpert.objects.create(utilisateur=user)
+            ProfilExpert.objects.get_or_create(utilisateur=user)
         elif user.role in ['BUREAU', 'BUREAU_ETUDE']:
-            BureauEtude.objects.create(gestionnaire=user)
+            BureauEtude.objects.get_or_create(gestionnaire=user)
         
         redirect_to = '/dashboard'
         if user.role == 'EXPERT':
@@ -169,7 +169,6 @@ class AppelOffreViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AppelOffreSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     
-    # Filtres plus complets
     filterset_fields = {
         'pays': ['exact'],
         'statut': ['exact'],
@@ -178,22 +177,17 @@ class AppelOffreViewSet(viewsets.ReadOnlyModelViewSet):
         'date_cloture': ['gte', 'lte'],
     }
     
-    # Recherche améliorée
     search_fields = ['titre', 'organisme', 'description']
     ordering_fields = ['date_publication', 'date_cloture', 'titre']
     ordering = ['-date_publication']
 
     def get_queryset(self):
-        """Filtres avancés (mots-clés multiples, délai, pays)"""
-        # Offres ouvertes par défaut
         queryset = AppelOffre.objects.filter(statut='Ouvert')
         
-        # Filtre par statut si spécifié
         statut = self.request.query_params.get('statut')
         if statut:
             queryset = queryset.filter(statut=statut)
         
-        # Filtre par mots-clés multiples
         keywords = self.request.query_params.getlist('keywords', [])
         if keywords:
             q_objects = Q()
@@ -201,13 +195,11 @@ class AppelOffreViewSet(viewsets.ReadOnlyModelViewSet):
                 q_objects |= Q(titre__icontains=keyword) | Q(description__icontains=keyword)
             queryset = queryset.filter(q_objects)
         
-        # Filtre par délai (jours avant clôture)
         max_days = self.request.query_params.get('max_days')
         if max_days:
             limit_date = timezone.now().date() + timedelta(days=int(max_days))
             queryset = queryset.filter(date_cloture__lte=limit_date)
         
-        # Filtre par pays multiples
         countries = self.request.query_params.getlist('countries', [])
         if countries:
             queryset = queryset.filter(pays__in=countries)
@@ -215,13 +207,11 @@ class AppelOffreViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset.order_by('-date_publication')
 
     def retrieve(self, request, *args, **kwargs):
-        """Détail d'une offre : passe le contexte request pour gérer url_tdr"""
         instance = self.get_object()
         serializer = self.get_serializer(instance, context={'request': request})
         return Response(serializer.data)
     
     def list(self, request, *args, **kwargs):
-        """Liste des offres avec debug"""
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -232,7 +222,6 @@ class AppelOffreViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='recent')
     def recent_offres(self, request):
-        """Offres publiées dans les 7 derniers jours"""
         seven_days_ago = timezone.now().date() - timedelta(days=7)
         recent = AppelOffre.objects.filter(
             date_publication__gte=seven_days_ago,
@@ -240,22 +229,69 @@ class AppelOffreViewSet(viewsets.ReadOnlyModelViewSet):
         ).order_by('-date_publication')[:20]
         serializer = self.get_serializer(recent, many=True, context={'request': request})
         return Response(serializer.data)
-    # offres/views.py - Dans AppelOffreViewSet
-
+    
     @action(detail=False, methods=['post'], url_path='create-manuel', permission_classes=[permissions.IsAdminUser])
     def create_manuel(self, request):
-        """Permet à un administrateur de créer une offre manuellement"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-    
-    # Force le mode_acquisition à MANUEL
         offre = serializer.save(mode_acquisition='MANUEL')
-    
         return Response({
             'message': 'Offre publiée avec succès.',
             'offre': AppelOffreSerializer(offre, context={'request': request}).data
         }, status=status.HTTP_201_CREATED)
-
+    
+    # ✅ AJOUT DE L'ACTION DOWNLOAD-PDF
+    @action(detail=True, methods=['get'], url_path='download-pdf')
+    def download_pdf(self, request, pk=None):
+        """
+        Télécharge le fichier PDF associé à l'offre
+        - Pour les PDF stockés localement : téléchargement direct
+        - Pour les URLs externes : retourne l'URL de redirection
+        """
+        offre = self.get_object()
+        
+        # Vérifier si l'utilisateur est authentifié
+        if not request.user.is_authenticated:
+            return Response(
+                {'error': 'Authentification requise pour télécharger le PDF'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Cas 1: PDF stocké localement
+        if offre.fichier_pdf and offre.fichier_pdf.name:
+            try:
+                # Vérifier si le fichier existe physiquement
+                if os.path.exists(offre.fichier_pdf.path):
+                    return FileResponse(
+                        open(offre.fichier_pdf.path, 'rb'),
+                        content_type='application/pdf',
+                        as_attachment=True,
+                        filename=f'TDR_{offre.id}_{offre.titre[:30].replace("/", "_")}.pdf'
+                    )
+                else:
+                    return Response(
+                        {'error': 'Fichier PDF non trouvé sur le serveur'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            except Exception as e:
+                print(f"Erreur lecture fichier: {e}")
+                return Response(
+                    {'error': 'Erreur lors de la lecture du fichier PDF'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        # Cas 2: URL externe (redirection)
+        if offre.url_tdr:
+            return Response(
+                {'redirect_url': offre.url_tdr},
+                status=status.HTTP_200_OK
+            )
+        
+        # Cas 3: Aucun PDF disponible
+        return Response(
+            {'error': 'Aucun PDF disponible pour cette offre'},
+            status=status.HTTP_404_NOT_FOUND
+        )
 
 # =============================================================================
 # ESPACE EXPERT - DASHBOARD
@@ -377,6 +413,7 @@ class ProfilExpertViewSet(viewsets.ModelViewSet):
     """Gestion du profil Expert - Accès Expert uniquement"""
     serializer_class = ProfilExpertSerializer
     permission_classes = [IsExpert]
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
 
     def get_queryset(self):
         return ProfilExpert.objects.filter(utilisateur=self.request.user)
@@ -387,11 +424,21 @@ class ProfilExpertViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         serializer.save(utilisateur=self.request.user)
 
+    @action(detail=False, methods=['put', 'patch'], url_path='update-profile')
+    def update_profile(self, request):
+        try:
+            profile, created = ProfilExpert.objects.get_or_create(utilisateur=request.user)
+            serializer = self.get_serializer(profile, data=request.data, partial=(request.method == 'PATCH'))
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response({'message': 'Profil mis à jour avec succès', 'profile': serializer.data}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': f'Erreur lors de la mise à jour: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=False, methods=['post'], url_path='upload-cv')
     def upload_cv(self, request):
-        """Endpoint dédié pour l'upload du CV"""
         try:
-            profile = request.user.profil_expert
+            profile, created = ProfilExpert.objects.get_or_create(utilisateur=request.user)
             if 'cv_fichier' not in request.FILES:
                 return Response({'error': 'Fichier CV requis'}, status=status.HTTP_400_BAD_REQUEST)
             profile.cv_fichier = request.FILES['cv_fichier']
@@ -401,8 +448,8 @@ class ProfilExpertViewSet(viewsets.ModelViewSet):
                 'cv_url': profile.cv_fichier.url if profile.cv_fichier else None,
                 'is_profile_complete': True
             })
-        except ProfilExpert.DoesNotExist:
-            return Response({'error': 'Profil expert non trouvé'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 # =============================================================================
@@ -425,7 +472,6 @@ class BureauEtudeViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['put'], url_path='update-profile')
     def update_profile(self, request):
-        """Mise à jour complète du profil bureau"""
         try:
             bureau = request.user.bureauetude
             allowed_fields = ['nom_structure', 'pays', 'adresse', 'domaine_activite', 'email_contact', 'telephone', 'site_web']
@@ -443,7 +489,6 @@ class BureauEtudeViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='my-profile')
     def my_profile(self, request):
-        """Récupère le profil complet du bureau"""
         try:
             bureau = request.user.bureauetude
             return Response({'profile': BureauEtudeSerializer(bureau).data, 'is_complete': getattr(bureau, 'profil_complet', lambda: True)()})
@@ -514,11 +559,11 @@ class MessageViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='marquer-lu')
     def marquer_lu(self, request, pk=None):
         message = self.get_object()
-        if message.destinataire == request.user:
-            message.est_lu = True
-            message.save()
-            return Response({'status': 'Message marqué comme lu'})
-        return Response({'error': 'Vous ne pouvez pas marquer ce message'}, status=403)
+        if message.destinataire != request.user:
+            return Response({'error': 'Vous ne pouvez pas marquer ce message'}, status=status.HTTP_403_FORBIDDEN)
+        message.est_lu = True
+        message.save()
+        return Response({'status': 'Message marqué comme lu', 'est_lu': True}, status=status.HTTP_200_OK)
     
     @action(detail=False, methods=['post'], url_path='envoyer-admin')
     def envoyer_a_admin(self, request):
@@ -546,7 +591,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         messages = Message.objects.filter(
             Q(expediteur=request.user, destinataire=admin) | Q(expediteur=admin, destinataire=request.user)
         ).order_by('date_envoi')
-        return Response(MessageSerializer(messages, many=True).data)
+        return Response(MessageSerializer(messages, many=True).data) 
 
 
 # =============================================================================
@@ -558,21 +603,16 @@ class AdminDashboardView(APIView):
     permission_classes = [permissions.IsAdminUser]
     
     def get(self, request):
-        # Stats offres
         total_offres = AppelOffre.objects.count()
         offres_par_source = [{'nom': s.nom, 'count': AppelOffre.objects.filter(source_origine=s).count()} for s in SourceScraping.objects.all() if AppelOffre.objects.filter(source_origine=s).count() > 0]
         
-        # Stats utilisateurs
         date_limite = timezone.now() - timedelta(days=30)
         
-        # Stats connexions (si modèle existe)
         connexions_aujourdhui = HistoriqueConnexion.objects.filter(date_connexion__date=timezone.now().date()).count() if 'HistoriqueConnexion' in globals() else 0
         connexions_semaine = HistoriqueConnexion.objects.filter(date_connexion__gte=timezone.now() - timedelta(days=7)).count() if 'HistoriqueConnexion' in globals() else 0
         
-        # Stats messages
         messages_non_lus = Message.objects.filter(destinataire=request.user, est_lu=False).count() if 'Message' in globals() else 0
         
-        # Stats suggestions
         suggestions_envoyees = SuggestionOffre.objects.count() if 'SuggestionOffre' in globals() else 0
         suggestions_consultees = SuggestionOffre.objects.filter(est_consulte_par_expert=True).count() if 'SuggestionOffre' in globals() else 0
         
@@ -599,7 +639,7 @@ class AdminDashboardView(APIView):
 
 
 # =============================================================================
-# ADMIN - GESTION DES SOURCES DE SCRAPPING (CORRIGÉ - SYNCHRONE + ROBUSTE)
+# ADMIN - GESTION DES SOURCES DE SCRAPPING
 # =============================================================================
 
 class AdminSourceViewSet(viewsets.ModelViewSet):
@@ -610,42 +650,24 @@ class AdminSourceViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'], url_path='run')
     def run_scraping(self, request):
-        """
-        Lance le scraping sur les sources sélectionnées.
-        ✅ VERSION SYNCHRONE + GESTION D'ERREURS COMPLÈTE (fonctionne sans Redis)
-        """
         try:
             source_ids = request.data.get('source_ids', [])
-            
-            # Validation stricte
             if not isinstance(source_ids, list):
                 return Response({'error': 'source_ids doit être une liste'}, status=status.HTTP_400_BAD_REQUEST)
-            
             if not all(isinstance(i, int) for i in source_ids):
                 return Response({'error': 'source_ids doit contenir des identifiants entiers'}, status=status.HTTP_400_BAD_REQUEST)
-            
             if not source_ids:
                 return Response({'error': 'Aucune source sélectionnée'}, status=status.HTTP_400_BAD_REQUEST)
             
-            # Import de la tâche de scraping
-            
             results = []
-            
             for source_id in source_ids:
                 try:
-                    # Vérifier que la source existe et est active
                     source = SourceScraping.objects.filter(id=source_id, est_actif=True).first()
                     if not source:
-                        results.append({
-                            'source_id': source_id,
-                            'status': 'skipped',
-                            'reason': 'Source inactive ou inexistante'
-                        })
+                        results.append({'source_id': source_id, 'status': 'skipped', 'reason': 'Source inactive ou inexistante'})
                         continue
                     
-                    # ✅ APPEL SYNCHRONE DIRECT (pas de .delay()) - fonctionne sans Redis
                     result = run_scheduled_scraping_task(source_id=source_id)
-                    
                     results.append({
                         'source_id': source_id,
                         'status': 'success',
@@ -653,21 +675,13 @@ class AdminSourceViewSet(viewsets.ModelViewSet):
                         'updated': result.get('updated', 0) if isinstance(result, dict) else 0,
                         'source_name': source.nom
                     })
-                    
-                    # Mettre à jour last_scraped
                     source.last_scraped = timezone.now()
                     source.save(update_fields=['last_scraped'])
-                    
                 except Exception as task_err:
                     print(f"❌ Erreur scraping source {source_id}: {task_err}")
                     print(traceback.format_exc())
-                    results.append({
-                        'source_id': source_id,
-                        'status': 'error',
-                        'error': str(task_err)
-                    })
+                    results.append({'source_id': source_id, 'status': 'error', 'error': str(task_err)})
             
-            # Résumé
             success_count = len([r for r in results if r['status'] == 'success'])
             error_count = len([r for r in results if r['status'] == 'error'])
             skipped_count = len([r for r in results if r['status'] == 'skipped'])
@@ -675,24 +689,13 @@ class AdminSourceViewSet(viewsets.ModelViewSet):
             return Response({
                 'message': f'Scraping terminé: {success_count} succès, {error_count} erreurs, {skipped_count} ignorées',
                 'results': results,
-                'summary': {
-                    'total': len(source_ids),
-                    'success': success_count,
-                    'errors': error_count,
-                    'skipped': skipped_count
-                }
+                'summary': {'total': len(source_ids), 'success': success_count, 'errors': error_count, 'skipped': skipped_count}
             }, status=status.HTTP_200_OK)
-            
         except Exception as e:
-            import traceback
             print(f"❌ ERREUR CRITIQUE run_scraping: {e}")
             print(traceback.format_exc())
             return Response({'error': f'Erreur serveur: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
-# =============================================================================
-# ADMIN - ENDPOINT DÉDIÉ POUR LANCER LE SCRAPPING (Alternative simple)
-# =============================================================================
 
 class AdminSourcesRunView(APIView):
     """Endpoint alternatif pour lancer le scraping - Admin uniquement"""
@@ -708,8 +711,6 @@ class AdminSourcesRunView(APIView):
             return Response({'error': 'Aucune source active trouvée'}, status=400)
         
         total_new, total_updated = 0, 0
-        from offres.scraping.tasks import run_scheduled_scraping_task
-        
         for source in sources:
             try:
                 result = run_scheduled_scraping_task(source_id=source.id)
@@ -728,7 +729,11 @@ class AdminSourcesRunView(APIView):
 
 
 # =============================================================================
-# ADMIN - GESTION DES UTILISATEURS (VERSION UNIQUE CORRIGÉE)
+# ADMIN - GESTION DES UTILISATEURS (✅ CORRIGÉ)
+# =============================================================================
+
+# =============================================================================
+# ADMIN - GESTION DES UTILISATEURS (✅ CORRIGÉ - Version finale)
 # =============================================================================
 
 class AdminUtilisateurViewSet(viewsets.ModelViewSet):
@@ -737,7 +742,43 @@ class AdminUtilisateurViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAdminUser]
     
     def get_queryset(self):
-        return Utilisateur.objects.exclude(is_superuser=True)
+        return Utilisateur.objects.exclude(id=self.request.user.id)
+    
+    def perform_create(self, serializer):
+        """Création d'un utilisateur par l'admin - ACTIF par défaut"""
+        # ✅ Récupérer le mot de passe des données de la requête
+        raw_password = self.request.data.get('password', '')
+        
+        # Sauvegarder l'utilisateur SANS mot de passe d'abord
+        user = serializer.save(is_active=True)
+        
+        # ✅ Définir le mot de passe correctement
+        if raw_password and len(raw_password) >= 6:
+            user.set_password(raw_password)
+            user.save(update_fields=['password'])
+            if settings.DEBUG:
+                print(f"✅ Utilisateur créé et activé : {user.email} | Mot de passe défini")
+        else:
+            # Mot de passe par défaut si non fourni (à éviter en prod)
+            default_password = 'DefaultPass123!'
+            user.set_password(default_password)
+            user.save(update_fields=['password'])
+            if settings.DEBUG:
+                print(f"⚠️ Utilisateur créé avec mot de passe par défaut : {user.email}")
+        
+        # ✅ Forcer is_active = True (double vérification)
+        if not user.is_active:
+            user.is_active = True
+            user.save(update_fields=['is_active'])
+        
+        # Création automatique du profil lié
+        if user.role == 'EXPERT':
+            ProfilExpert.objects.get_or_create(utilisateur=user)
+        elif user.role == 'BUREAU':
+            BureauEtude.objects.get_or_create(gestionnaire=user)
+        
+        if settings.DEBUG:
+            print(f"✅ Utilisateur {user.email} : is_active={user.is_active}, role={user.role}")
     
     def perform_update(self, serializer):
         user = serializer.save()
@@ -746,30 +787,31 @@ class AdminUtilisateurViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['patch'], url_path='toggle-active')
     def toggle_active(self, request, pk=None):
-        """Bloquer/débloquer un utilisateur"""
         try:
             user = self.get_object()
-            user.is_active = not user.is_active
+            new_status = request.data.get('is_active')
+            if new_status is not None:
+                user.is_active = bool(new_status)
+            else:
+                user.is_active = not user.is_active
+            
             user.save(update_fields=['is_active'])
-        
-             # ✅ CORRECTION : Utiliser ContentType pour obtenir le content_type_id
+            
             content_type = ContentType.objects.get_for_model(user)
-        
-            # Log de l'action
             LogEntry.objects.log_action(
                 user_id=request.user.id,
-                content_type_id=content_type.pk,  # ✅ .pk au lieu de .content_type_id
+                content_type_id=content_type.pk,
                 object_id=user.pk,
                 object_repr=str(user),
-                action_flag=2,  # CHANGE
+                action_flag=2,
                 change_message=f'Utilisateur {"bloqué" if not user.is_active else "débloqué"} par admin'
             )
-        
+            
             return Response({
                 'message': f'Utilisateur {user.email} {"bloqué" if not user.is_active else "débloqué"}',
-                'is_active': user.is_active
+                'is_active': user.is_active,
+                'user': UserSerializer(user).data
             }, status=status.HTTP_200_OK)
-        
         except Exception as e:
             print(f"❌ ERREUR toggle_active: {e}")
             print(traceback.format_exc())
@@ -777,34 +819,25 @@ class AdminUtilisateurViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['delete'], url_path='force-delete')
     def force_delete(self, request, pk=None):
-        """Suppression définitive d'un utilisateur"""
         try:
             user = self.get_object()
-        
-            # Empêcher la suppression de soi-même ou d'un superuser
             if user.is_superuser or user.id == request.user.id:
                 return Response({'error': 'Impossible de supprimer cet utilisateur'}, status=status.HTTP_403_FORBIDDEN)
-        
+            
             user_email = user.email
-        
-            # ✅ CORRECTION : Utiliser ContentType pour le log
+            user_id = user.pk
             content_type = ContentType.objects.get_for_model(user)
-        
             user.delete()
-        
-            # Log de la suppression
-            from django.contrib.admin.models import LogEntry
+            
             LogEntry.objects.log_action(
                 user_id=request.user.id,
-                content_type_id=content_type.pk,  # ✅ .pk au lieu de None
-                object_id=user.pk,  # ✅ Utiliser user.pk avant suppression ou garder None si préféré
+                content_type_id=content_type.pk,
+                object_id=user_id,
                 object_repr=f'Utilisateur supprimé: {user_email}',
-                action_flag=3,  # DELETE
+                action_flag=3,
                 change_message=f'Utilisateur {user_email} supprimé définitivement par admin'
             )
-        
             return Response({'message': f'Utilisateur {user_email} supprimé'}, status=status.HTTP_200_OK)
-        
         except Exception as e:
             print(f"❌ ERREUR force_delete: {e}")
             print(traceback.format_exc())
@@ -825,7 +858,7 @@ class AdminConnexionHistoriqueView(APIView):
 
 
 # =============================================================================
-# ADMIN - GESTION DES SUGGESTIONS (VERSION UNIQUE CORRIGÉE)
+# ADMIN - GESTION DES SUGGESTIONS
 # =============================================================================
 
 class AdminSuggestionOffreViewSet(viewsets.ModelViewSet):
@@ -844,7 +877,6 @@ class AdminSuggestionOffreViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='envoyer')
     def envoyer_suggestion(self, request, pk=None):
-        """Envoyer la notification à l'expert"""
         suggestion = self.get_object()
         Notification.objects.create(
             destinataire=suggestion.expert.utilisateur, offre_liee=suggestion.offre,
@@ -855,7 +887,6 @@ class AdminSuggestionOffreViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['delete'], url_path='force-delete')
     def force_delete(self, request, pk=None):
-        """Supprimer une suggestion"""
         suggestion = self.get_object()
         suggestion_id = suggestion.id
         suggestion.delete()
@@ -868,33 +899,52 @@ class AdminSuggestionOffreViewSet(viewsets.ModelViewSet):
 
 
 # =============================================================================
-# ADMIN - RÉPONSE AUX MESSAGES
+# ADMIN : RÉPONDRE AUX MESSAGES
 # =============================================================================
 
+# offres/views.py - Mettre à jour AdminReponseMessageView
+
 class AdminReponseMessageView(APIView):
-    """Permet à l'administrateur de répondre aux messages"""
+    """Permet à l'administrateur de répondre à un message"""
     permission_classes = [permissions.IsAdminUser]
     
     def post(self, request, message_id):
         try:
             message_original = Message.objects.get(id=message_id)
         except Message.DoesNotExist:
-            return Response({'error': 'Message non trouvé'}, status=404)
+            return Response({'error': 'Message non trouvé'}, status=status.HTTP_404_NOT_FOUND)
         
-        contenu = request.data.get('contenu', '')
+        contenu = request.data.get('contenu', '').strip()
         if not contenu:
-            return Response({'error': 'Le contenu du message est requis'}, status=400)
+            return Response({'error': 'Contenu requis'}, status=status.HTTP_400_BAD_REQUEST)
         
+        # ✅ Créer la réponse avec les nouveaux champs
         reponse = Message.objects.create(
-            expediteur=request.user, destinataire=message_original.expediteur,
-            sujet=f"RE: {message_original.sujet}", contenu=contenu
+            expediteur=request.user,
+            destinataire=message_original.expediteur,
+            sujet=f"RE: {message_original.sujet}",
+            contenu=contenu,
+            est_reponse=True,
+            reponse_contenu=contenu,
+            message_original=message_original
         )
+        
+        # ✅ Marquer le message original comme lu
+        message_original.est_lu = True
+        message_original.save()
+        
+        # Créer une notification pour le destinataire
         Notification.objects.create(
-            destinataire=message_original.expediteur, objet=f"Réponse à votre message",
-            message=contenu[:200], offre_liee=None
+            destinataire=message_original.expediteur,
+            objet="Réponse à votre message",
+            message=f"L'administrateur a répondu à votre message: {contenu[:200]}",
+            offre_liee=None
         )
-        return Response(MessageSerializer(reponse).data, status=201)
-
+        
+        return Response({
+            'message': 'Réponse envoyée',
+            'reponse': MessageSerializer(reponse).data
+        }, status=status.HTTP_201_CREATED)
 
 # =============================================================================
 # ADMIN - EFFACER L'HISTORIQUE
@@ -930,7 +980,7 @@ class AdminHistoryView(APIView):
 
 
 # =============================================================================
-# NOTIFICATIONS & PRÉFÉRENCES
+# NOTIFICATIONS & PRÉFÉRENCES (✅ DOUBLON SUPPRIMÉ, UNIQUE VERSION SÉCURISÉE)
 # =============================================================================
 
 class NotificationUserViewSet(viewsets.ModelViewSet):
@@ -939,14 +989,16 @@ class NotificationUserViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Notification.objects.filter(destinataire=self.request.user)
+        return Notification.objects.filter(destinataire=self.request.user).order_by('-date_envoi')
 
     @action(detail=True, methods=['post'], url_path='marquer-lue')
     def marquer_lue(self, request, pk=None):
         notification = self.get_object()
-        notification.est_lue = True
-        notification.save()
-        return Response({'status': 'Notification marquée comme lue'})
+        if notification.destinataire == request.user:
+            notification.est_lue = True
+            notification.save()
+            return Response({'status': 'Notification marquée comme lue'})
+        return Response({'error': 'Vous ne pouvez pas modifier cette notification'}, status=403)
 
 
 class PreferenceAlerteViewSet(viewsets.ModelViewSet):
@@ -979,3 +1031,69 @@ class OffresPubliquesView(generics.ListAPIView):
         context = super().get_serializer_context()
         context['request'] = self.request
         return context
+
+
+# =============================================================================
+# TÉLÉCHARGEMENT DE PDF
+# =============================================================================
+
+# offres/views.py - Ajoutez cette vue
+
+from django.http import FileResponse, Http404
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from .models import AppelOffre
+import os
+
+class TelechargerPDFView(APIView):
+    """
+    Vue pour télécharger le PDF associé à une offre
+    URL: /api/offres/<offre_id>/download-pdf/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, offre_id):
+        try:
+            offre = AppelOffre.objects.get(id=offre_id)
+        except AppelOffre.DoesNotExist:
+            return Response(
+                {'error': 'Offre non trouvée'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Cas 1: PDF stocké localement
+        if offre.fichier_pdf and offre.fichier_pdf.name:
+            try:
+                # Vérifier si le fichier existe
+                if os.path.exists(offre.fichier_pdf.path):
+                    return FileResponse(
+                        open(offre.fichier_pdf.path, 'rb'),
+                        content_type='application/pdf',
+                        as_attachment=True,
+                        filename=f'TDR_{offre.id}.pdf'
+                    )
+                else:
+                    return Response(
+                        {'error': 'Fichier PDF non trouvé sur le serveur'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            except Exception as e:
+                print(f"Erreur: {e}")
+                return Response(
+                    {'error': 'Erreur lors de la lecture du PDF'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        # Cas 2: URL externe (redirection)
+        if offre.url_tdr:
+            return Response(
+                {'redirect_url': offre.url_tdr},
+                status=status.HTTP_200_OK
+            )
+        
+        # Cas 3: Aucun PDF
+        return Response(
+            {'error': 'Aucun PDF disponible pour cette offre'},
+            status=status.HTTP_404_NOT_FOUND
+        )

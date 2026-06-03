@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from offres.views import TelechargerPDFView
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -20,13 +21,14 @@ from offres.views import (
     ExpertDashboardView, BureauDashboardView,
     NewsletterSubscriptionView,
     MessageViewSet,
+    NotificationUserViewSet,
     AdminDashboardView,
     AdminUtilisateurViewSet,
     AdminConnexionHistoriqueView,
     AdminSuggestionOffreViewSet,
     AdminReponseMessageView,
     OffresPubliquesView,
-    # ✅ NOUVEAUX IMPORTS
+
     AdminSourceViewSet,
     AdminHistoryView,
     AdminSourcesRunView
@@ -46,6 +48,7 @@ router.register(r'messages', MessageViewSet, basename='messages')
 router.register(r'admin/utilisateurs', AdminUtilisateurViewSet, basename='admin-utilisateurs')
 router.register(r'admin/suggestions', AdminSuggestionOffreViewSet, basename='admin-suggestions')
 router.register(r'admin/sources', AdminSourceViewSet, basename='admin-sources')
+router.register(r'notifications', NotificationUserViewSet, basename='notification')  # ✅ IMPORTANT
 
 # =============================================================================
 # URL PATTERNS
@@ -95,11 +98,15 @@ urlpatterns = [
     
     # === ADMIN - CONNEXIONS & MESSAGES ===
     path('api/admin/connexions/', AdminConnexionHistoriqueView.as_view(), name='admin-connexions'),
-    path('api/admin/messages/<int:message_id>/repondre/', AdminReponseMessageView.as_view(), name='admin-repondre-message'),
+    path('api/admin/messages/<int:message_id>/reply/', AdminReponseMessageView.as_view(), name='admin-reply-message'),
     
     # === PUBLIC ===
     path('api/newsletter/subscribe/', NewsletterSubscriptionView.as_view(), name='newsletter_subscribe'),
     path('api/offres/publiques/', OffresPubliquesView.as_view(), name='offres-publiques'),
+
+    #PDF
+    path('api/offres/<int:offre_id>/download-pdf/', TelechargerPDFView.as_view(), name='download-pdf'),
+    
     
     # === ROUTER ===
     path('api/', include(router.urls)),

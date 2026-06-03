@@ -1,67 +1,47 @@
-/* Navbar personnalisée */
+/* src/components/Navbar.css */
+
+/* Navbar plus compacte */
+.navbar {
+  min-height: 48px;
+}
+
 .navbar-brand {
-  font-size: 1.4rem;
-  letter-spacing: -0.5px;
+  font-size: 1.2rem;
 }
 
-.navbar-brand .text-warning {
-  color: #ffc107 !important;
-}
-
-/* Avatar utilisateur */
-.avatar-sm {
+.nav-link {
   font-size: 0.9rem;
-  border: 2px solid var(--bs-primary);
+  padding: 0.4rem 0.8rem !important;
 }
 
-/* Dropdown personnalisé */
-.dropdown-menu {
-  border: none;
-  border-radius: 8px;
-  padding: 0.5rem 0;
+/* Alignement horizontal des boutons */
+.navbar-nav {
+  gap: 0.25rem;
 }
 
-.dropdown-item {
-  padding: 0.6rem 1.2rem;
-  transition: background 0.2s;
-}
-
-.dropdown-item:hover {
-  background: #f8f9fa;
-  color: var(--bs-primary);
-}
-
-.dropdown-item.text-danger:hover {
-  background: #fff5f5;
-  color: #dc3545 !important;
-}
-
-/* Responsive mobile */
 @media (max-width: 991px) {
+  .navbar-nav {
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+  }
+  
   .navbar-collapse {
     background: var(--bs-primary);
-    padding: 1rem;
-    border-radius: 0 0 8px 8px;
+    padding: 0.75rem;
+    border-radius: 8px;
     margin-top: 0.5rem;
   }
   
-  .nav-item {
-    margin: 0.3rem 0;
-  }
-  
-  .btn-outline-light {
-    width: 100%;
+  .nav-link {
     text-align: center;
   }
   
-  .btn-warning {
+  .btn-sm {
     width: 100%;
-    text-align: center;
   }
 }
 
-/* Animation hover */
-.nav-link:not(.btn):hover {
-  color: #ffc107 !important;
-  transition: color 0.2s;
+/* Séparateur vertical */
+.navbar-nav .text-white-50 {
+  font-size: 0.8rem;
 }

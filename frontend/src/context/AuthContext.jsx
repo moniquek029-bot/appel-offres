@@ -16,108 +16,93 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // ✅ Initialisation au chargement : restaure la session depuis localStorage
   useEffect(() => {
     const initAuth = () => {
       const token = localStorage.getItem('access_token');
       const refreshToken = localStorage.getItem('refresh_token');
-      const role = localStorage.getItem('user_role');
-      const email = localStorage.getItem('user_email');
-      const nom = localStorage.getItem('user_nom');
+      const userStr = localStorage.getItem('user');
       
-      if (token && role) {
-        setUser({ token, refreshToken, role, email, nom });
+      if (token && userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          setUser({
+            token,
+            refreshToken,
+            role: userData.role,
+            email: userData.email,
+            nom: userData.nom || `${userData.first_name || ''} ${userData.last_name || ''}`,
+            id: userData.id
+          });
+        } catch (e) {
+          console.error('Erreur parsing user:', e);
+        }
       }
       setLoading(false);
     };
     initAuth();
   }, []);
 
-  // ✅ Login : stocke les DEUX tokens + infos utilisateur
   const login = async (email, password) => {
     try {
       const { data } = await api.post('/auth/login/', { email, password });
       
-      // Stockage sécurisé des tokens
-      const accessToken = data.access || data.tokens?.access;
-      const refreshToken = data.refresh || data.tokens?.refresh;
+      const accessToken = data.access;
+      const refreshToken = data.refresh;
+      const userData = data.user;
       
-      if (accessToken) {
+      if (accessToken && userData) {
         localStorage.setItem('access_token', accessToken);
-      }
-      if (refreshToken) {
         localStorage.setItem('refresh_token', refreshToken);
-      }
-      
-      // Stockage des infos utilisateur (pour l'UI)
-      if (data.user) {
-        localStorage.setItem('user_role', data.user.role || '');
-        localStorage.setItem('user_email', data.user.email || '');
-        localStorage.setItem('user_nom', data.user.nom || '');
+        localStorage.setItem('user', JSON.stringify(userData));
         
         setUser({
           token: accessToken,
           refreshToken,
-          role: data.user.role,
-          email: data.user.email,
-          nom: data.user.nom
+          role: userData.role,
+          email: userData.email,
+          nom: userData.nom || `${userData.first_name || ''} ${userData.last_name || ''}`,
+          id: userData.id
         });
-      } else {
-        setUser({ token: accessToken, refreshToken });
+        
+        return { success: true, data };
       }
       
-      console.log(' Login réussi');
-      return { success: true, data };
+      return { success: false, error: 'Données de réponse invalides' };
       
     } catch (err) {
-      console.error(' Erreur login:', err.response?.data || err.message);
+      console.error('Erreur login:', err.response?.data || err.message);
       return { 
         success: false, 
-        error: err.response?.data?.detail || 'Identifiants invalides' 
+        error: err.response?.data?.detail || 'Email ou mot de passe incorrect' 
       };
     }
   };
 
-  // ✅ Logout : nettoyage complet
   const logout = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user_role');
-    localStorage.removeItem('user_email');
-    localStorage.removeItem('user_nom');
+    localStorage.removeItem('user');
     setUser(null);
-    console.log(' Déconnexion effectuée');
   };
 
-  // ✅ Refresh token : avec gestion d'erreur
   const refreshToken = async () => {
     const refresh = localStorage.getItem('refresh_token');
-    if (!refresh) {
-      console.warn(' Aucun refresh token disponible');
-      return null;
-    }
+    if (!refresh) return null;
     
     try {
       const { data } = await api.post('/auth/token/refresh/', { refresh });
-      const newAccess = data.access;
-      
-      if (newAccess) {
-        localStorage.setItem('access_token', newAccess);
-        // Met à jour l'état user avec le nouveau token
-        setUser(prev => prev ? { ...prev, token: newAccess } : null);
-        console.log(' Token rafraîchi avec succès');
-        return newAccess;
+      if (data.access) {
+        localStorage.setItem('access_token', data.access);
+        setUser(prev => prev ? { ...prev, token: data.access } : null);
+        return data.access;
       }
       return null;
     } catch (err) {
-      console.error(' Échec du refresh token:', err.response?.data || err.message);
-      // Token refresh invalide → déconnexion forcée
       logout();
       return null;
     }
   };
 
-  // ✅ Valeurs exposées au contexte
   const value = {
     user,
     loading,

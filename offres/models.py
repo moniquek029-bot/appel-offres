@@ -81,6 +81,7 @@ class SourceScraping(models.Model):
     last_scraped = models.DateTimeField(null=True, blank=True, verbose_name="Dernier scraping")
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
+    pays = models.CharField(max_length=10, default='BF', blank=True)
     
     class Meta:
         verbose_name = "Source de scraping"
@@ -93,10 +94,10 @@ class SourceScraping(models.Model):
 # =============================================================================
 # MODULE 3 : CONSULTATION ET RECHERCHE D'OFFRES
 # =============================================================================
-
 class AppelOffre(models.Model):
     """
     Table centrale. Gère les offres scrapées ET saisies manuellement.
+    ✅ CORRIGÉ : mode_acquisition avec max_length=50 pour éviter DataError
     """
     STATUT_CHOICES = [
         ('Ouvert', 'Ouvert'),
@@ -108,7 +109,11 @@ class AppelOffre(models.Model):
     titre = models.CharField(max_length=300)
     organisme = models.CharField(max_length=200, verbose_name="Institution émettrice")
     description = models.TextField(verbose_name="Résumé de l'offre")
-    pays = CountryField(default='BF') 
+    pays = models.CharField(
+        max_length=10,
+        default='BF',
+        help_text="Code pays ou region (BF, SN, MULTI, REGIONAL, et.)"
+    )
     date_publication = models.DateField()
     date_cloture = models.DateField()
     
@@ -124,10 +129,25 @@ class AppelOffre(models.Model):
     MODES_SAISIE = [
         ('AUTO', 'Collecte Automatique (Scraping)'),
         ('MANUEL', 'Saisie Manuelle (Administrateur)'),
+        ('API', 'Import via API externe'),
+        ('IMPORT', 'Import fichier (CSV/Excel)'),
     ]
-    mode_acquisition = models.CharField(max_length=10, choices=MODES_SAISIE, default='AUTO')
+    # ✅ CORRECTION : max_length=50 au lieu de 10 pour supporter les valeurs longues
+    mode_acquisition = models.CharField(
+        max_length=50,  # ← Augmenté de 10 à 50
+        choices=MODES_SAISIE, 
+        default='AUTO',
+        help_text="Mode d'acquisition de l'offre"
+    )
     source_origine = models.ForeignKey('SourceScraping', on_delete=models.SET_NULL, null=True, blank=True)
     statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default="Ouvert")
+
+    fichier_pdf = models.FileField(
+        upload_to='tdr/%y/%m/%d/',
+        null=True,
+        blank=True,
+        verbose_name="Fichier PDF (TDR)"
+    )
 
     class Meta:
         db_table = "Appel_Offre"
@@ -355,6 +375,8 @@ class SuggestionOffre(models.Model):
 
 # offres/models.py - Ajouter ce modèle
 
+# offres/models.py - Ajoutez ces champs à la classe Message
+
 class Message(models.Model):
     """
     Modèle pour la messagerie entre utilisateurs et administrateur
@@ -375,6 +397,18 @@ class Message(models.Model):
     est_lu = models.BooleanField(default=False)
     date_envoi = models.DateTimeField(auto_now_add=True)
     
+    # ✅ NOUVEAUX CHAMPS POUR LA GESTION DES RÉPONSES
+    est_reponse = models.BooleanField(default=False, help_text="True si ce message est une réponse")
+    reponse_contenu = models.TextField(blank=True, null=True, help_text="Contenu de la réponse envoyée")
+    message_original = models.ForeignKey(
+        'self', 
+        on_delete=models.CASCADE, 
+        null=True, 
+        blank=True,
+        related_name='reponses',
+        help_text="Message original auquel cette réponse est liée"
+    )
+    
     class Meta:
         db_table = "messages"
         verbose_name = "Message"
@@ -382,8 +416,26 @@ class Message(models.Model):
     
     def __str__(self):
         return f"{self.sujet} - {self.expediteur.email} -> {self.destinataire.email}"
-
-
+    
+    def marquer_comme_lu(self):
+        """Marque le message comme lu"""
+        self.est_lu = True
+        self.save()
+    
+    def ajouter_reponse(self, contenu_reponse):
+        """Ajoute une réponse à ce message"""
+        reponse = Message.objects.create(
+            expediteur=self.destinataire,
+            destinataire=self.expediteur,
+            sujet=f"RE: {self.sujet}",
+            contenu=contenu_reponse,
+            est_reponse=True,
+            reponse_contenu=contenu_reponse,
+            message_original=self
+        )
+        self.est_lu = True
+        self.save()
+        return reponse
 #Historique des connexions des utilisateurs (pour sécurité et audit)
 
 class HistoriqueConnexion(models.Model):
