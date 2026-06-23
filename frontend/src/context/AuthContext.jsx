@@ -51,23 +51,27 @@ export const AuthProvider = ({ children }) => {
       const userData = data.user;
       
       if (accessToken && userData) {
+        // Mettre à jour le localStorage d'abord (plus fiable)
         localStorage.setItem('access_token', accessToken);
         localStorage.setItem('refresh_token', refreshToken);
         localStorage.setItem('user', JSON.stringify(userData));
         
-        setUser({
+        // Ensuite mettre à jour l'état React
+        const userState = {
           token: accessToken,
           refreshToken,
           role: userData.role,
           email: userData.email,
           nom: userData.nom || `${userData.first_name || ''} ${userData.last_name || ''}`,
           id: userData.id
-        });
+        };
         
-        return { success: true, data };
+        setUser(userState);
+        
+        return { success: true, data, user: userState };
       }
       
-      return { success: false, error: 'Données de réponse invalides' };
+      return { success: false, error: 'Données invalides' };
       
     } catch (err) {
       console.error('Erreur login:', err.response?.data || err.message);

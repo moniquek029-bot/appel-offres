@@ -51,18 +51,27 @@ INSTALLED_APPS = [
 #  Configuration Celery CORRECTE pour développement sans Redis
 
 # Broker : utilise la mémoire (léger, sans installation, DEV uniquement)
-CELERY_BROKER_URL = 'memory://'  # (optionnel, si vous avez Redis installé)
-CELERY_RESULT_BACKEND = 'django-db'  # Stocke les résultats dans la base Django (via django-celery-results)
+#CELERY_BROKER_URL = 'memory://'  # (optionnel, si vous avez Redis installé)
+#CELERY_RESULT_BACKEND = 'django-db'  # Stocke les résultats dans la base Django (via django-celery-results)
 
 
-CELERY_RESULT_BACKEND = 'django-db'
-CELERY_IMPORTS=('offres.scraping.tasks',)  # Import des tâches pour que Celery les reconnaisse
+#CELERY_RESULT_BACKEND = 'django-db'
+#CELERY_IMPORTS=('offres.scraping.tasks',)  # Import des tâches pour que Celery les reconnaisse
 
 # Configuration supplémentaire requise
+#CELERY_TIMEZONE = 'Africa/Ouagadougou'
+#CELERY_TASK_TRACK_STARTED = True
+#CELERY_TASK_TIME_LIMIT = 30 * 60
+#CELERY_RESULT_EXTENDED = True #  # Requis pour django-celery-results
+
+
+# Configuration Celery + Redis
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Africa/Ouagadougou'
-CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = 30 * 60
-CELERY_RESULT_EXTENDED = True  # Requis pour django-celery-results
 
 # Planning des tâches (inchangé)
 CELERY_BEAT_SCHEDULE = {
@@ -132,6 +141,9 @@ AUTH_USER_MODEL = 'offres.Utilisateur'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
+# Taille max des uploads (10 MB)
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
@@ -161,16 +173,12 @@ AUTH_PASSWORD_VALIDATORS = [
 # CONFIGURATION EMAIL - Mailtrap SMTP (Test uniquement)
 # =============================================================================
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'sandbox.smtp.mailtrap.io'
-EMAIL_PORT = 2525
-EMAIL_HOST_USER = '3dce7fc33711b7' #identifiant pour Mailtrap (à remplacer par vos propres identifiants Mailtrap)
-EMAIL_HOST_PASSWORD = '7d21e4c566a34d'  #mot de passe pour Mailtrap (à remplacer par vos propres identifiants Mailtrap)
+EMAIL_HOST = 'smtp.sendgrid.net'
+EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-DEFAULT_FROM_EMAIL = 'hello@demomailtrap.co'
-SERVER_EMAIL = DEFAULT_FROM_EMAIL
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
-
+EMAIL_HOST_USER = 'apikey'  # Littéralement 'apikey'
+EMAIL_HOST_PASSWORD = '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'  # ← Collez votre clé ici
+DEFAULT_FROM_EMAIL = 'Plateforme Offre <moniquek029@gmail.com>'
 LANGUAGE_CODE = 'fr-FR'
 
 TIME_ZONE = 'Africa/Ouagadougou'

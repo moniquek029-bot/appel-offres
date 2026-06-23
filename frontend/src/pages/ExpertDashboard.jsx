@@ -1,4 +1,4 @@
-// src/pages/ExpertDashboard.jsx
+// src/pages/ExpertDashboard.jsx - VERSION MODIFIÉE AVEC SUGGESTIONS
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
@@ -11,15 +11,26 @@ const ExpertDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [messagesNonLus, setMessagesNonLus] = useState(0);
-  const [refreshKey, setRefreshKey] = useState(0);
+  // ✅ NOUVEAU : État pour les suggestions
+  const [suggestionsStats, setSuggestionsStats] = useState(null);
 
-  // Récupérer les messages non lus
   const fetchMessagesNonLus = useCallback(async () => {
     try {
-      const messagesRes = await api.get('/messages/non-lus/');
-      setMessagesNonLus(messagesRes.data.count || 0);
+      const res = await api.get('/messages/non-lus/');
+      setMessagesNonLus(res.data.count || 0);
     } catch (err) {
-      console.error('Erreur chargement messages non lus:', err);
+      console.error('Erreur chargement messages:', err);
+    }
+  }, []);
+
+  // ✅ NOUVEAU : Récupérer les statistiques des suggestions
+  const fetchSuggestionsStats = useCallback(async () => {
+    try {
+      const res = await api.get('/expert/suggestions/');
+      setSuggestionsStats(res.data.stats || null);
+    } catch (err) {
+      console.error('Erreur chargement suggestions:', err);
+      setSuggestionsStats(null);
     }
   }, []);
 
@@ -29,6 +40,7 @@ const ExpertDashboard = () => {
         const res = await api.get('/expert/dashboard/');
         setDashboardData(res.data);
         await fetchMessagesNonLus();
+        await fetchSuggestionsStats(); // ✅ Charger les suggestions
       } catch (err) {
         console.error('Erreur chargement dashboard:', err);
       } finally {
@@ -36,233 +48,417 @@ const ExpertDashboard = () => {
       }
     };
     fetchDashboard();
-  }, [fetchMessagesNonLus]);
+  }, [fetchMessagesNonLus, fetchSuggestionsStats]);
 
-  // Rafraîchir les messages non lus quand on revient sur l'onglet messages
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    if (tab === 'messages') {
-      fetchMessagesNonLus();
-      setRefreshKey(prev => prev + 1);
-    }
+    if (tab === 'messages') fetchMessagesNonLus();
+    if (tab === 'suggestions') fetchSuggestionsStats(); // ✅ Recharger les suggestions
   };
   
   if (loading) {
     return (
       <div className="container py-5 text-center">
-        <div className="spinner-border text-primary" role="status">
+        <div className="spinner-border" role="status" 
+             style={{ color: 'var(--primary)', width: '3rem', height: '3rem' }}>
           <span className="visually-hidden">Chargement...</span>
         </div>
       </div>
     );
   }
 
-  const { user, profile, stats, recent_matching_offres, next_steps } = dashboardData || {};
+  const { user, profile, stats, recent_matching_offres } = dashboardData || {};
+  const hasCV = !!profile?.cv_fichier;
+  const nom = profile?.full_name || user?.email?.split('@')[0] || 'Expert';
+  const competences = profile?.competences ? profile.competences.split(',').slice(0, 3) : [];
+  
+  // ✅ Calculer le nombre de suggestions en attente
+  const suggestionsEnAttente = suggestionsStats?.en_attente || 0;
 
   return (
-    <div className="container py-4">
+    <div className="container py-4" style={{ backgroundColor: 'var(--gray-50)', minHeight: '100vh' }}>
       
-      {/* Onglets horizontaux */}
-      <div className="mb-4">
-        <div className="d-flex justify-content-center gap-2" style={{ flexWrap:'nowrap', overflowX: 'auto'}}>
+      {/* ========== EN-TÊTE AVEC PROFIL INTÉGRÉ ========== */}
+      <div className="d-flex justify-content-between align-items-center flex-wrap mb-3">
+        {/* Partie gauche - Bonjour + Profil */}
+        <div>
+          <h1 className="h2 mb-1 fw-bold" style={{ color: '#2c2c94' }}>
+            Expert, <span className="text-primary">{nom}</span>
+          </h1>
           
-          <button 
-            className={`btn px-3 py-2 rounded-pill ${
-              activeTab === 'dashboard' 
-                ? 'btn-primary shadow-sm' 
-                : 'btn-outline-secondary'
-            }`}
-            onClick={() => handleTabChange('dashboard')}
-            style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}
-          >
-            📊 Dashboard
-          </button>
-          
-          <button 
-            className={`btn px-3 py-2 rounded-pill ${
-              activeTab === 'criteres' 
-                ? 'btn-primary shadow-sm' 
-                : 'btn-outline-secondary'
-            }`}
-            onClick={() => handleTabChange('criteres')}
-            style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}
-          >
-            🔍 Critères
-          </button>
-          
-          <button 
-            className={`btn px-3 py-2 rounded-pill ${
-              activeTab === 'notifications' 
-                ? 'btn-primary shadow-sm' 
-                : 'btn-outline-secondary'
-            }`}
-            onClick={() => handleTabChange('notifications')}
-            style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}
-          >
-            🔔 Notifications
-            {profile?.notifications_non_lues > 0 && (
-              <span className="badge bg-danger ms-1">{profile.notifications_non_lues}</span>
-            )}
-          </button>
-          
-          <button 
-            className={`btn px-3 py-2 rounded-pill position-relative ${
-              activeTab === 'messages' 
-                ? 'btn-primary shadow-sm' 
-                : 'btn-outline-secondary'
-            }`}
-            onClick={() => handleTabChange('messages')}
-            style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}
-          >
-            💬 Messages
-            {messagesNonLus > 0 && (
-              <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-                {messagesNonLus}
+          {/* État du profil */}
+          <div className="d-flex align-items-center flex-wrap gap-2 mt-2">
+            <div className="d-flex align-items-center">
+              <i className="bi bi-person-check-fill text-primary me-1" style={{ fontSize: '0.8rem' }}></i>
+              <span className="small fw-semibold me-1" style={{ color: 'var(--gray-700)' }}>Profil :</span>
+              <span className={`badge ${hasCV ? 'bg-success' : 'bg-warning text-dark'} px-2 py-1 rounded-pill`}
+                    style={{ fontWeight: '500', fontSize: '0.7rem' }}>
+                {hasCV ? 'Complet' : 'CV manquant'}
               </span>
+            </div>
+            {competences.length > 0 && (
+              <div className="d-flex align-items-center flex-wrap gap-1">
+                <i className="bi bi-tag-fill text-secondary me-1" style={{ fontSize: '0.7rem' }}></i>
+                {competences.map((c, i) => (
+                  <span key={i} className="badge bg-light text-dark border px-2 py-1 rounded-pill"
+                        style={{ fontWeight: '400', fontSize: '0.65rem' }}>
+                    {c.trim()}
+                  </span>
+                ))}
+              </div>
             )}
-          </button>
-          
+          </div>
+        </div>
+        
+        {/* Partie droite - Boutons alignés à droite */}
+        <div className="d-flex gap-2 mt-3 mt-sm-0">
+          {!hasCV && (
+            <Link 
+              to="/expert/profile" 
+              className="btn btn-primary"
+              style={{ 
+                borderRadius: '25px', 
+                padding: '8px 20px',
+                fontWeight: '500',
+                fontSize: '0.85rem',
+                background: 'linear-gradient(135deg, #1E3A8A, #172554)',
+                border: 'none'
+              }}
+            >
+              <i className="bi bi-cloud-upload me-2"></i>
+              Ajouter mon CV
+            </Link>
+          )}
+          <Link 
+            to="/expert/profile" 
+            className="btn btn-primary"
+            style={{ 
+              borderRadius: '25px', 
+              padding: '8px 20px',
+              fontWeight: '500',
+              fontSize: '0.85rem',
+              background: 'linear-gradient(135deg, #303578, #a99053)',
+              border: 'none'
+            }}
+          >
+            <i className="bi bi-pencil-square me-2"></i>
+            Modifier mon profil
+          </Link>
         </div>
       </div>
 
-      {/* Dashboard */}
-      {activeTab === 'dashboard' && (
-        <>
-          <div className="row mb-4">
-            <div className="col-12">
-              <h2 className="mb-1 fs-4">Bonjour, {user?.nom || user?.first_name || 'Expert'} 👋</h2>
-              <p className="text-muted small">Tableau de bord Expert</p>
-              
-              <div className="alert alert-light border d-flex align-items-center justify-content-between mt-2 py-2">
-                <div>
-                  <strong className="small">Profil :</strong>{' '}
-                  <span className={`badge ${profile?.cv_fichier ? 'bg-success' : 'bg-warning text-dark'} ms-1`}>
-                    {profile?.cv_fichier ? '✅ Complet' : '⚠️ CV manquant'}
+      {/* ========== CARTES STATISTIQUES COMPACTES ========== */}
+      <div className="row g-2 mb-4">
+        {/* Carte Critères */}
+        <div className="col-6 col-md-3">
+          <div className="card border-0 shadow-sm h-100 text-center" 
+               style={{ borderRadius: '12px', transition: 'transform 0.2s' }}>
+            <div className="card-body p-2">
+              <div className="bg-primary bg-opacity-10 rounded-circle d-inline-flex p-1 mb-1">
+                <i className="bi bi-funnel-fill text-primary" style={{ fontSize: '1.2rem' }}></i>
+              </div>
+              <h3 className="h4 mb-0 fw-bold text-primary">{stats?.criteres_count || 0}</h3>
+              <p className="text-muted mb-1" style={{ fontSize: '0.65rem' }}>
+                <i className="bi bi-info-circle me-1"></i>
+                Critères
+              </p>
+              <button 
+                className="btn btn-xs btn-outline-primary w-100 rounded-pill"
+                onClick={() => handleTabChange('criteres')}
+                style={{ fontSize: '0.6rem', padding: '3px 6px' }}
+              >
+                <i className="bi bi-eye me-1"></i>
+                Gérer
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Carte Offres */}
+        <div className="col-6 col-md-3">
+          <div className="card border-0 shadow-sm h-100 text-center" 
+               style={{ borderRadius: '12px', transition: 'transform 0.2s' }}>
+            <div className="card-body p-2">
+              <div className="bg-success bg-opacity-10 rounded-circle d-inline-flex p-1 mb-1">
+                <i className="bi bi-file-text-fill text-success" style={{ fontSize: '1.2rem' }}></i>
+              </div>
+              <h3 className="h4 mb-0 fw-bold text-success">{stats?.matching_offres_count || 0}</h3>
+              <p className="text-muted mb-1" style={{ fontSize: '0.65rem' }}>
+                <i className="bi bi-info-circle me-1"></i>
+                Offres
+              </p>
+              <Link to="/offres" 
+                    className="btn btn-xs btn-outline-success w-100 rounded-pill"
+                    style={{ fontSize: '0.6rem', padding: '3px 6px' }}>
+                <i className="bi bi-eye me-1"></i>
+                Voir
+              </Link>
+            </div>
+          </div>
+        </div>
+        
+        {/* Carte Messages */}
+        <div className="col-6 col-md-3">
+          <div className="card border-0 shadow-sm h-100 text-center" 
+               style={{ borderRadius: '12px', transition: 'transform 0.2s' }}>
+            <div className="card-body p-2">
+              <div className="bg-info bg-opacity-10 rounded-circle d-inline-flex p-1 mb-1">
+                <i className="bi bi-chat-dots-fill text-info" style={{ fontSize: '1.2rem' }}></i>
+              </div>
+              <h3 className="h4 mb-0 fw-bold text-info">{messagesNonLus}</h3>
+              <p className="text-muted mb-1" style={{ fontSize: '0.65rem' }}>
+                <i className="bi bi-info-circle me-1"></i>
+                Messages
+              </p>
+              <button 
+                className="btn btn-xs btn-outline-info w-100 rounded-pill"
+                onClick={() => handleTabChange('messages')}
+                style={{ fontSize: '0.6rem', padding: '3px 6px' }}>
+                <i className="bi bi-eye me-1"></i>
+                Consulter
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        {/* ✅ Carte Suggestions - MODIFIÉE avec lien vers page dédiée */}
+        <div className="col-6 col-md-3">
+          <div className="card border-0 shadow-sm h-100 text-center" 
+               style={{ borderRadius: '12px', transition: 'transform 0.2s' }}>
+            <div className="card-body p-2">
+              <div className="bg-warning bg-opacity-10 rounded-circle d-inline-flex p-1 mb-1">
+                <i className="bi bi-lightbulb-fill text-warning" style={{ fontSize: '1.2rem' }}></i>
+              </div>
+              <h3 className="h4 mb-0 fw-bold text-warning">
+                {suggestionsStats?.total || 0}
+                {suggestionsEnAttente > 0 && (
+                  <span className="badge bg-danger ms-1" style={{ fontSize: '0.6rem' }}>
+                    {suggestionsEnAttente}
                   </span>
-                </div>
-                {!profile?.cv_fichier && (
-                  <Link to="/expert/profile" className="btn btn-xs btn-primary">
-                    + CV
-                  </Link>
                 )}
-              </div>
+              </h3>
+              <p className="text-muted mb-1" style={{ fontSize: '0.65rem' }}>
+                <i className="bi bi-info-circle me-1"></i>
+                Suggestions
+              </p>
+              {/* ✅ LIEN VERS PAGE DÉDIÉE au lieu de bouton */}
+              <Link 
+                to="/expert/suggestions" 
+                className="btn btn-xs btn-outline-warning w-100 rounded-pill"
+                style={{ fontSize: '0.6rem', padding: '3px 6px' }}>
+                <i className="bi bi-eye me-1"></i>
+                Consulter
+              </Link>
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Cartes statistiques */}
-          <div className="row g-2 mb-4">
-            <div className="col-4">
-              <div className="card border-0 shadow-sm h-100 stat-card">
-                <div className="card-body text-center p-2">
-                  <div className="fs-1 text-primary mb-1">🔍</div>
-                  <h3 className="h4 mb-1 fw-bold">{stats?.criteres_count || 0}</h3>
-                  <p className="text-muted small mb-1">Critères</p>
-                  <button className="btn btn-xs btn-outline-primary w-100" onClick={() => handleTabChange('criteres')}>
-                    Gérer
-                  </button>
-                </div>
-              </div>
-            </div>
-            
-            <div className="col-4">
-              <div className="card border-0 shadow-sm h-100 stat-card">
-                <div className="card-body text-center p-2">
-                  <div className="fs-1 text-success mb-1">📄</div>
-                  <h3 className="h4 mb-1 fw-bold">{stats?.matching_offres_count || 0}</h3>
-                  <p className="text-muted small mb-1">Offres</p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="col-4">
-              <div className="card border-0 shadow-sm h-100 stat-card">
-                <div className="card-body text-center p-2">
-                  <div className="fs-1 text-info mb-1">📨</div>
-                  <h3 className="h4 mb-1 fw-bold">{messagesNonLus}</h3>
-                  <p className="text-muted small mb-1">Messages</p>
-                  <button className="btn btn-xs btn-outline-info w-100" onClick={() => handleTabChange('messages')}>
-                    Voir
-                  </button>
-                </div>
-              </div>
-            </div>
+      {/* Navigation par onglets */}
+      <div className="mb-4">
+        <div className="d-flex gap-2 flex-wrap border-bottom pb-2"
+             style={{ borderColor: 'var(--gray-300)' }}>
+          {[
+            { id: 'dashboard', label: 'Tableau de bord', icon: 'bi-speedometer2' },
+            { id: 'criteres', label: 'Critères', icon: 'bi-funnel' },
+            { id: 'notifications', label: 'Notifications', icon: 'bi-bell' },
+            { id: 'messages', label: 'Messages', icon: 'bi-envelope', badge: messagesNonLus },
+            // ✅ NOUVEAU : Onglet Suggestions
+            { 
+              id: 'suggestions', 
+              label: 'Suggestions', 
+              icon: 'bi-lightbulb', 
+              badge: suggestionsEnAttente 
+            }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              className={`btn btn-sm ${activeTab === tab.id ? 'btn-primary' : 'btn-outline-secondary'} px-3 py-1`}
+              onClick={() => handleTabChange(tab.id)}
+              style={{ 
+                borderRadius: '20px',
+                fontWeight: activeTab === tab.id ? '500' : '400',
+                fontSize: '0.8rem'
+              }}
+            >
+              <i className={`${tab.icon} me-1`} style={{ fontSize: '0.8rem' }}></i>
+              {tab.label}
+              {tab.badge > 0 && (
+                <span className="badge bg-danger ms-1 rounded-pill" style={{ fontSize: '0.6rem' }}>{tab.badge}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Contenu Dashboard - Offres */}
+      {activeTab === 'dashboard' && (
+        <div>
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <h5 className="mb-0 fw-semibold" style={{ fontSize: '1rem', color: '#1a1a2e' }}>
+              <i className="bi bi-star-fill text-warning me-1"></i>
+              Offres qui vous correspondent
+            </h5>
+            <Link to="/offres" className="btn btn-sm btn-link text-decoration-none" 
+                  style={{ color: 'var(--primary)', fontSize: '0.8rem' }}>
+              Voir toutes <i className="bi bi-arrow-right ms-1"></i>
+            </Link>
           </div>
-
-          {/* Actions recommandées */}
-          {next_steps && next_steps.length > 0 && (
-            <div className="row mb-4">
-              <div className="col-12">
-                <div className="card border-0 shadow-sm">
-                  <div className="card-header bg-light py-2">
-                    <h5 className="mb-0 fs-6">🎯 Actions</h5>
-                  </div>
-                  <div className="card-body py-2">
-                    {next_steps.map((step, index) => (
-                      <div key={index} className={`alert alert-${step.priority === 'high' ? 'danger' : 'info'} d-flex justify-content-between align-items-center mb-1 py-1 small`}>
-                        <span>{step.message}</span>
-                        <Link to={step.url} className="btn btn-xs btn-outline-dark">
-                          {step.action === 'upload_cv' && 'CV'}
-                          {step.action === 'add_criteria' && 'Ajouter'}
-                          {step.action === 'browse_offres' && 'Voir'}
-                        </Link>
+          
+          {recent_matching_offres && recent_matching_offres.length > 0 ? (
+            <div className="row g-3">
+              {recent_matching_offres.slice(0, 6).map((offre) => (
+                <div className="col-md-6 col-lg-4" key={offre.id}>
+                  <div className="card border-0 shadow-sm h-100" 
+                       style={{ borderRadius: '12px' }}>
+                    <div className="card-body p-3">
+                      <div className="d-flex justify-content-between align-items-start mb-2">
+                        <span className="badge bg-success rounded-pill px-2 py-1" style={{ fontSize: '0.65rem' }}>Ouvert</span>
+                        <small className="text-muted" style={{ fontSize: '0.65rem' }}>
+                          <i className="bi bi-calendar3 me-1"></i>
+                          {new Date(offre.date_cloture).toLocaleDateString('fr-FR')}
+                        </small>
                       </div>
-                    ))}
+                      <h6 className="card-title fw-bold mb-1" style={{ fontSize: '0.85rem' }}>{offre.titre}</h6>
+                      <p className="text-muted small mb-2" style={{ fontSize: '0.7rem' }}>{offre.organisme}</p>
+                      <p className="card-text text-secondary mb-2" style={{ fontSize: '0.7rem' }}>{offre.description?.substring(0, 80)}...</p>
+                      <Link to={`/offres/${offre.id}`} 
+                            className="btn btn-sm btn-primary w-100 rounded-pill"
+                            style={{ fontSize: '0.7rem', padding: '5px' }}>
+                        <i className="bi bi-eye me-1"></i>
+                        Voir détails
+                      </Link>
+                    </div>
                   </div>
                 </div>
+              ))}
+            </div>
+          ) : (
+            <div className="card border-0 shadow-sm text-center py-4" 
+                 style={{ borderRadius: '12px' }}>
+              <div className="card-body">
+                <i className="bi bi-inbox fs-1 text-muted"></i>
+                <p className="text-muted mt-2 mb-0 small">Aucune offre ne correspond à vos critères</p>
+                <button 
+                  className="btn btn-link btn-sm mt-1" 
+                  onClick={() => handleTabChange('criteres')}
+                  style={{ color: 'var(--primary)', fontSize: '0.75rem' }}
+                >
+                  <i className="bi bi-plus-circle me-1"></i>
+                  Ajouter des critères
+                </button>
               </div>
             </div>
           )}
+        </div>
+      )}
 
-          {/* Offres correspondantes */}
-          <div className="row">
-            <div className="col-12">
-              <div className="d-flex justify-content-between align-items-center mb-2">
-                <h4 className="mb-0 fs-6">📋 Offres correspondantes</h4>
-                <Link to="/offres" className="btn btn-outline-primary btn-xs">
-                  Voir tout →
-                </Link>
-              </div>
-              
-              {recent_matching_offres && recent_matching_offres.length > 0 ? (
-                <div className="row g-2">
-                  {recent_matching_offres.slice(0, 6).map((offre) => (
-                    <div className="col-md-6 col-lg-4" key={offre.id}>
-                      <div className="card h-100 border-0 shadow-sm">
-                        <div className="card-body p-2">
-                          <h6 className="card-title text-primary mb-1 small text-truncate">{offre.titre}</h6>
-                          <p className="text-muted small mb-1">{offre.organisme}</p>
-                          <p className="card-text small text-secondary mb-2 text-truncate-2">
-                            {offre.description}
-                          </p>
-                          <div className="d-flex justify-content-between align-items-center">
-                            <small className="text-muted">
-                              {new Date(offre.date_cloture).toLocaleDateString('fr-FR')}
-                            </small>
-                            <Link to={`/offres/${offre.id}`} className="btn btn-xs btn-primary">
-                              Voir
-                            </Link>
-                          </div>
+      {/* ✅ Contenu Suggestions - Résumé rapide dans le dashboard */}
+      {activeTab === 'suggestions' && (
+        <div>
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <h5 className="mb-0 fw-semibold" style={{ fontSize: '1rem', color: '#1a1a2e' }}>
+              <i className="bi bi-lightbulb-fill text-warning me-1"></i>
+              Mes suggestions d'offres
+            </h5>
+            <Link 
+              to="/expert/suggestions" 
+              className="btn btn-sm btn-primary"
+              style={{ fontSize: '0.8rem' }}
+            >
+              <i className="bi bi-arrow-right me-1"></i>
+              Voir toutes les suggestions
+            </Link>
+          </div>
+          
+          {suggestionsStats && suggestionsStats.total > 0 ? (
+            <div className="row g-3">
+              {/* Résumé des statistiques */}
+              <div className="col-12">
+                <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
+                  <div className="card-body p-3">
+                    <div className="row g-2 text-center">
+                      <div className="col-3">
+                        <div className="p-2 bg-warning bg-opacity-10 rounded">
+                          <h4 className="mb-0 fw-bold text-warning">{suggestionsStats.en_attente}</h4>
+                          <small className="text-muted" style={{ fontSize: '0.7rem' }}>En attente</small>
+                        </div>
+                      </div>
+                      <div className="col-3">
+                        <div className="p-2 bg-info bg-opacity-10 rounded">
+                          <h4 className="mb-0 fw-bold text-info">{suggestionsStats.consultees}</h4>
+                          <small className="text-muted" style={{ fontSize: '0.7rem' }}>Consultées</small>
+                        </div>
+                      </div>
+                      <div className="col-3">
+                        <div className="p-2 bg-success bg-opacity-10 rounded">
+                          <h4 className="mb-0 fw-bold text-success">{suggestionsStats.acceptees}</h4>
+                          <small className="text-muted" style={{ fontSize: '0.7rem' }}>Acceptées</small>
+                        </div>
+                      </div>
+                      <div className="col-3">
+                        <div className="p-2 bg-danger bg-opacity-10 rounded">
+                          <h4 className="mb-0 fw-bold text-danger">{suggestionsStats.refusees}</h4>
+                          <small className="text-muted" style={{ fontSize: '0.7rem' }}>Refusées</small>
                         </div>
                       </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              ) : (
-                <div className="alert alert-info small py-2">
-                  Aucune offre ne correspond.
-                  <button className="btn btn-link p-0 ms-1" onClick={() => handleTabChange('criteres')}>
-                    Ajouter des critères
-                  </button>
+              </div>
+              
+              {/* Message d'action */}
+              {suggestionsEnAttente > 0 && (
+                <div className="col-12">
+                  <div className="alert alert-warning d-flex align-items-center" role="alert" style={{ borderRadius: '12px' }}>
+                    <i className="bi bi-exclamation-triangle-fill me-2 fs-4"></i>
+                    <div className="flex-grow-1">
+                      <strong>Vous avez {suggestionsEnAttente} suggestion{suggestionsEnAttente > 1 ? 's' : ''} en attente de réponse !</strong>
+                      <p className="mb-0 small mt-1">
+                        L'administrateur vous a suggéré des offres correspondant à votre profil. Prenez le temps de les consulter et d'y répondre.
+                      </p>
+                    </div>
+                    <Link 
+                      to="/expert/suggestions" 
+                      className="btn btn-warning btn-sm"
+                    >
+                      <i className="bi bi-eye me-1"></i>
+                      Répondre
+                    </Link>
+                  </div>
+                </div>
+              )}
+              
+              {suggestionsEnAttente === 0 && suggestionsStats.total > 0 && (
+                <div className="col-12">
+                  <div className="alert alert-success d-flex align-items-center" role="alert" style={{ borderRadius: '12px' }}>
+                    <i className="bi bi-check-circle-fill me-2 fs-4"></i>
+                    <div>
+                      <strong>Bien joué !</strong> Vous avez traité toutes vos suggestions.
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
-          </div>
-        </>
+          ) : (
+            <div className="card border-0 shadow-sm text-center py-4" 
+                 style={{ borderRadius: '12px' }}>
+              <div className="card-body">
+                <i className="bi bi-lightbulb fs-1 text-muted"></i>
+                <p className="text-muted mt-2 mb-0 small">Aucune suggestion pour le moment</p>
+                <p className="text-muted small">
+                  L'administrateur vous suggérera des offres correspondant à votre profil.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
+      {/* Autres onglets */}
       {activeTab === 'criteres' && <ExpertCriteres />}
       {activeTab === 'notifications' && <Notifications />}
-      {activeTab === 'messages' && <Messagerie key={refreshKey} />}
+      {activeTab === 'messages' && <Messagerie />}
     </div>
   );
 };

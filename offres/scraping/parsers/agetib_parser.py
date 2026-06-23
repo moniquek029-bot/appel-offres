@@ -76,7 +76,8 @@ class AgetibParser(BaseScraper):
     def run(self) -> list[dict]:
         logger.info(f"🕷️ AGETIB scraping: {self.source_url}")
         try:
-            soup = self.fetch_and_parse()
+            # L'AGETIB nécessite Playwright (mode dynamique)
+            soup = self.fetch_and_parse(use_js=True)
             if not soup:
                 return []
             return self.parse(soup)

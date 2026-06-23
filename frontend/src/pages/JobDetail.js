@@ -53,7 +53,7 @@ const JobDetail = () => {
     if (pdfUrl) {
       window.open(pdfUrl, '_blank', 'noopener,noreferrer');
     } else {
-      alert('❌ Aucun document PDF disponible pour cette offre');
+      alert(' Aucun document PDF disponible pour cette offre');
     }
   };
 
@@ -71,7 +71,9 @@ const JobDetail = () => {
     return (
       <div className="container py-5">
         <div className="alert alert-danger">{error || 'Offre non trouvée'}</div>
-        <Link to="/" className="btn btn-outline-primary">← Retour</Link>
+        <Link to="/" className="btn btn-outline-primary">
+        <i className="bi bi-arrow-left me-1"></i>
+         Retour</Link>
       </div>
     );
   }
@@ -82,10 +84,12 @@ const JobDetail = () => {
 
   return (
     <div className="container py-4">
-      <Link to="/" className="btn btn-outline-secondary mb-3">← Retour aux offres</Link>
+      <Link to="/" className="btn btn-outline-secondary mb-3">
+      <i className="bi bi-arrow-left me-1"></i>
+        Retour aux offres</Link>
       
       <div className="card shadow-sm">
-        <div className="card-header bg-primary text-white">
+        <div className="card-header text-white" style={{background: 'linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%)'}}>
           <h3 className="mb-0">{offre.titre}</h3>
         </div>
         
@@ -93,21 +97,29 @@ const JobDetail = () => {
           {/* Infos générales */}
           <div className="row mb-4">
             <div className="col-md-6">
-              <p><strong>🏢 Organisme :</strong> {offre.organisme}</p>
+              <p><strong> Organisme :</strong> {offre.organisme}</p>
             </div>
             <div className="col-md-6">
-              <p><strong>📅 Date de clôture :</strong> {formatDate(offre.date_cloture)}</p>
+              <p><strong> 
+                <i className="bi bi-calendar-x me-1 text-muted"></i>
+                Date de clôture :</strong> {formatDate(offre.date_cloture)}</p>
             </div>
             <div className="col-md-6">
-              <p><strong>📆 Publication :</strong> {formatDate(offre.date_publication)}</p>
+              <p><strong>
+                <i className="bi bi-calendar-check me-1 text-muted"></i>
+                 Publication :</strong> {formatDate(offre.date_publication)}</p>
             </div>
             <div className="col-md-6">
-              <p><strong>🌍 Pays :</strong> {offre.pays === 'BF' ? '🇧🇫 Burkina Faso' : offre.pays}</p>
+              <i className="bi bi-globe-americas me-1 text-muted"></i>
+              <p><strong> Pays :</strong> {offre.pays === 'BF' ? '🇧🇫 Burkina Faso' : offre.pays}</p>
             </div>
           </div>
           
           {/* Description */}
-          <h5 className="text-primary mb-3">📋 Description</h5>
+          <h5 className="mb-3" style={{color: 'var(--primary)'}}>
+            <i className="bi bi-card-text me-1"></i>
+            Description
+          </h5>
           <div className="mb-4 p-3 bg-light rounded" style={{ whiteSpace: 'pre-line' }}>
             {offre.description || 'Aucune description disponible.'}
           </div>
@@ -116,21 +128,43 @@ const JobDetail = () => {
           
           {/* SECTION TDR */}
           <div className="mb-4">
-            <h5 className="text-primary mb-3">📄 Télécharger le TDR</h5>
-            
             {hasPdf ? (
-              <div className="d-flex gap-3 flex-wrap align-items-center">
-                <button 
-                  onClick={handleDownloadPDF} 
-                  className="btn btn-success btn-lg"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-                >
-                  📥 Télécharger le PDF
-                </button>
-              </div>
+              user ? (
+                //  UTILISATEUR CONNECTÉ: afficher le bouton de téléchargement
+                <div className="d-flex gap-3 flex-wrap align-items-center">
+                  <button 
+                    onClick={handleDownloadPDF} 
+                    className="btn btn-lg fw-bold"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #D35400 0%, #F59E0B 100%)', border: 'none', color: 'white', boxShadow: '0 2px 8px rgba(211, 84, 0, 0.15)' }}
+                  >
+                    <i className="bi bi-download me-1"></i>
+                    Télécharger TDR
+                  </button>
+                </div>
+              ) : (
+                // ❌ UTILISATEUR NON CONNECTÉ: afficher message avec lien de connexion
+                <div className="alert alert-info d-flex flex-column gap-2">
+                  <p className="mb-0">
+                    <strong>Connexion requise</strong>
+                  </p>
+                  <p className="mb-0 text-muted">
+                    <i className="bi bi-info-circle-fill me-1"></i>
+                    Veuillez vous connecter pour télécharger le TDR de cette offre.
+                  </p>
+                  <div>
+                    <Link 
+                      to={`/login?from=/offre/${id}`} 
+                      className="btn btn-primary btn-sm"
+                    >
+                      <i className="bi bi-box-arrow-in-right me-1"></i>
+                      Se connecter
+                    </Link>
+                  </div>
+                </div>
+              )
             ) : (
               <div className="alert alert-warning">
-                ⚠️ Aucun document TDR n'est disponible pour cette offre.
+                Aucun document TDR n'est disponible pour cette offre.
               </div>
             )}
           </div>

@@ -1,6 +1,6 @@
 # offres/scraping/sources_config.py
 """
-Sources actives - UNIQUEMENT les sites fonctionnels
+Sources actives - Configuration des sites cibles pour le scraping réel
 """
 
 ACTIVE_SOURCES = [
@@ -10,15 +10,15 @@ ACTIVE_SOURCES = [
         'parser': 'unfpa',
         'pays': 'BF',
         'est_actif': True,
-        'require_pdf': True,
+        'require_pdf': False,
     },
     {
         'nom': 'AGETIB',
-        'url': 'https://www.agetib.net/appels-offres',
+        'url': 'https://www.agetib.net/avis-de-marches',  # 🎯 CORRIGÉ (Évite la 404)
         'parser': 'agetib',
         'pays': 'BF',
         'est_actif': True,
-        'require_pdf': True,
+        'require_pdf': False,
     },
     {
         'nom': 'SONABEL',
@@ -26,7 +26,7 @@ ACTIVE_SOURCES = [
         'parser': 'sonabel',
         'pays': 'BF',
         'est_actif': True,
-        'require_pdf': True,
+        'require_pdf': False,
     },
     {
         'nom': 'UEMOA',
@@ -34,14 +34,14 @@ ACTIVE_SOURCES = [
         'parser': 'uemoa',
         'pays': 'BF',
         'est_actif': True,
-        'require_pdf': True,
+        'require_pdf': False,
     },
     {
         'nom': 'JOFFRES',
         'url': 'https://www.joffres.net/burkina-faso',
-        'parser': 'joffres',
+        'parser': 'joffres', # 🎯 Sera géré par ton JoffresParser ou SmartParser
         'pays': 'BF',
         'est_actif': True,
-        'require_pdf': True,
+        'require_pdf': False,
     },
 ]

@@ -1,5 +1,5 @@
 // src/pages/ExpertCriteres.jsx
-import React, { useState, useEffect } from 'react';
+{/*import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -107,10 +107,10 @@ const ExpertCriteres = () => {
           <h2>🎯 Mes critères de recherche</h2>
           <p className="text-muted">Recevez des alertes pour les offres correspondant à vos critères</p>
         </div>
-      </div>
+      </div>*/}
 
-      {/* Formulaire d'ajout */}
-      <div className="card border-0 shadow-sm mb-4">
+     {/* Formulaire d'ajout */}
+      {/*<div className="card border-0 shadow-sm mb-4">
         <div className="card-body">
           <h5 className="card-title mb-3">➕ Ajouter un critère de recherche</h5>
           <form onSubmit={handleSubmit}>
@@ -189,10 +189,10 @@ const ExpertCriteres = () => {
             </div>
           </form>
         </div>
-      </div>
+      </div>*/}
 
       {/* Liste des critères */}
-      <h5 className="mb-3">📋 Mes critères actifs</h5>
+      {/*<h5 className="mb-3">📋 Mes critères actifs</h5>
       {criteres.length > 0 ? (
         <div className="list-group">
           {criteres.map(c => (
@@ -242,6 +242,6 @@ const ExpertCriteres = () => {
       </div>
     </div>
   );
-};
+};*/}
 
-export default ExpertCriteres;
+{/*export default ExpertCriteres;*/}

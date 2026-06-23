@@ -44,10 +44,10 @@ const Notifications = () => {
   };
 
   const getTypeIcon = (objet) => {
-    if (objet?.toLowerCase().includes('offre')) return '📄';
-    if (objet?.toLowerCase().includes('alerte')) return '🔔';
-    if (objet?.toLowerCase().includes('message')) return '💬';
-    return 'ℹ️';
+    if (objet?.toLowerCase().includes('offre')) return '';
+    if (objet?.toLowerCase().includes('alerte')) return '';
+    if (objet?.toLowerCase().includes('message')) return '';
+    return '';
   };
 
   const nonLuesCount = notifications.filter(n => !n.est_lue).length;
@@ -57,7 +57,7 @@ const Notifications = () => {
   return (
     <div className="card border-0 shadow-sm">
       <div className="card-header bg-white border-0 py-3 d-flex justify-content-between align-items-center">
-        <h5 className="mb-0">🔔 Mes notifications</h5>
+        <h5 className="mb-0"> Mes notifications</h5>
         {nonLuesCount > 0 && (
           <button className="btn btn-sm btn-outline-primary" onClick={marquerToutesLues}>
             Tout marquer comme lu ({nonLuesCount})

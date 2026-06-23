@@ -54,7 +54,10 @@ const ExpertCriteres = () => {
           <nav aria-label="breadcrumb">
             <ol className="breadcrumb">
               <li className="breadcrumb-item"><Link to="/expert/dashboard">Dashboard</Link></li>
-              <li className="breadcrumb-item active">Critères de recherche</li>
+              <li className="breadcrumb-item active">
+                <i className="bi bi-funnel-fill me-1"></i>
+                Critères de recherche
+              </li>
             </ol>
           </nav>
           <h2> Mes critères de recherche</h2>
@@ -63,7 +66,9 @@ const ExpertCriteres = () => {
 
       <div className="card border-0 shadow-sm mb-4">
         <div className="card-body">
-          <h5 className="card-title mb-3">➕ Ajouter un critère</h5>
+          <h5 className="card-title mb-3">
+            <i className="bi bi-funnel-fill me-1"></i>
+             Ajouter un critère</h5>
           <form onSubmit={handleSubmit} className="row g-3">
             <div className="col-md-8">
               <input type="text" className="form-control" placeholder="Mots-clés (ex: informatique, audit...)" value={newCritere.mots_cles} onChange={e => setNewCritere({...newCritere, mots_cles: e.target.value})} required />

@@ -3,6 +3,11 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.validators import EmailValidator
 from django_countries.fields import CountryField
+from django.contrib.auth.models import User
+import secrets
+from datetime import timedelta
+from django.utils import timezone
+from django.conf import settings  # ✅ AJOUTER CET IMPORT
 
 
 # =============================================================================
@@ -86,6 +91,7 @@ class SourceScraping(models.Model):
     class Meta:
         verbose_name = "Source de scraping"
         verbose_name_plural = "Sources de scraping"
+        ordering = ['id']
     
     def __str__(self):
         return self.nom
@@ -96,9 +102,7 @@ class SourceScraping(models.Model):
 # =============================================================================
 class AppelOffre(models.Model):
     """
-    Table centrale. Gère les offres scrapées ET saisies manuellement.
-    ✅ CORRIGÉ : mode_acquisition avec max_length=50 pour éviter DataError
-    """
+    Table centrale. Gère les offres scrapées ET saisies manuellement."""
     STATUT_CHOICES = [
         ('Ouvert', 'Ouvert'),
         ('Clôturé', 'Clôturé'),
@@ -108,7 +112,15 @@ class AppelOffre(models.Model):
     
     titre = models.CharField(max_length=300)
     organisme = models.CharField(max_length=200, verbose_name="Institution émettrice")
-    description = models.TextField(verbose_name="Résumé de l'offre")
+    
+    # ✅ MODIFICATION : Description maintenant optionnelle
+    description = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Résumé de l'offre",
+        help_text="Description optionnelle de l'offre"
+    )
+    
     pays = models.CharField(
         max_length=10,
         default='BF',
@@ -132,9 +144,9 @@ class AppelOffre(models.Model):
         ('API', 'Import via API externe'),
         ('IMPORT', 'Import fichier (CSV/Excel)'),
     ]
-    # ✅ CORRECTION : max_length=50 au lieu de 10 pour supporter les valeurs longues
+    
     mode_acquisition = models.CharField(
-        max_length=50,  # ← Augmenté de 10 à 50
+        max_length=50, 
         choices=MODES_SAISIE, 
         default='AUTO',
         help_text="Mode d'acquisition de l'offre"
@@ -142,16 +154,34 @@ class AppelOffre(models.Model):
     source_origine = models.ForeignKey('SourceScraping', on_delete=models.SET_NULL, null=True, blank=True)
     statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default="Ouvert")
 
+    # ✅ MODIFICATION : Upload de fichier PDF depuis PC/téléphone
     fichier_pdf = models.FileField(
-        upload_to='tdr/%y/%m/%d/',
+        upload_to='tdr/%Y/%m/%d/',  # ✅ %Y au lieu de %y pour l'année complète
         null=True,
         blank=True,
-        verbose_name="Fichier PDF (TDR)"
+        verbose_name="Fichier PDF (TDR)",
+        help_text="Téléchargez le PDF depuis votre PC ou téléphone"
     )
+
+    # =========================================================================
+    # =========================================================================
+    # 1. Résout l'erreur de blocage MariaDB (Field 'est_expire' doesn't have a default value)
+    est_expire = models.BooleanField(
+        default=False, 
+        help_text="Indique si l'offre est marquée comme expirée"
+    )
+    
+    # 2. Permet au frontend de calculer "Il y a 5 min", "Vient d'être scrapée", etc.
+    date_scraping = models.DateTimeField(
+        auto_now_add=True, 
+        verbose_name="Date de collecte"
+    )
+    # =========================================================================
 
     class Meta:
         db_table = "Appel_Offre"
         verbose_name = "Appels d'Offres"
+        verbose_name_plural = "Appels d'Offres"
         ordering = ['-date_publication']
         indexes = [
             models.Index(fields=['statut', 'date_cloture']),
@@ -160,8 +190,11 @@ class AppelOffre(models.Model):
 
     def __str__(self):
         return f"[{self.mode_acquisition}] {self.titre[:50]}..."
-
-
+    
+    # ✅ Méthode utilitaire pour vérifier si un PDF est disponible
+    def has_pdf(self):
+        """Vérifie si un PDF est disponible (fichier uploadé ou URL)"""
+        return bool(self.fichier_pdf) or bool(self.url_tdr)
 # =============================================================================
 # MODULE 4 : PROFILS - EXPERT (avec CV, compétences, etc.)
 # =============================================================================
@@ -358,22 +391,67 @@ class Notification(models.Model):
 class SuggestionOffre(models.Model):
     """
     Suggestion d'expert par l'administrateur pour une offre spécifique
+    ✅ MODIFIÉ : Ajout des champs pour la réponse de l'expert
     """
-    expert = models.ForeignKey(ProfilExpert, on_delete=models.CASCADE, verbose_name="Expert sélectionné")
-    offre = models.ForeignKey(AppelOffre, on_delete=models.CASCADE, verbose_name="Offre concernée")
+    STATUT_REPONSE_CHOICES = [
+        ('EN_ATTENTE', 'En attente'),
+        ('CONSULTEE', 'Consultée'),
+        ('ACCEPTEE', 'Acceptée'),
+        ('REFUSEE', 'Refusée'),
+    ]
+    
+    expert = models.ForeignKey(
+        ProfilExpert, 
+        on_delete=models.CASCADE, 
+        verbose_name="Expert sélectionned",
+        related_name='suggestions_recues'
+    )
+    offre = models.ForeignKey(
+        AppelOffre, 
+        on_delete=models.CASCADE, 
+        verbose_name="Offre concernée",
+        related_name='suggestions'
+    )
     date_suggestion = models.DateTimeField(auto_now_add=True)
-    commentaire_admin = models.TextField(blank=True, help_text="Pourquoi suggérer cet expert ?")
+    commentaire_admin = models.TextField(
+        blank=True, 
+        help_text="Pourquoi suggérer cet expert ?"
+    )
+    
+    # ✅ NOUVEAU : Statut de la réponse de l'expert
+    statut_reponse = models.CharField(
+        max_length=20,
+        choices=STATUT_REPONSE_CHOICES,
+        default='EN_ATTENTE',
+        verbose_name="Statut de la réponse"
+    )
+    
+    # ✅ NOUVEAU : Date de réponse de l'expert
+    date_reponse = models.DateTimeField(
+        null=True, 
+        blank=True,
+        verbose_name="Date de réponse"
+    )
+    
+    # ✅ NOUVEAU : Commentaire de l'expert
+    commentaire_expert = models.TextField(
+        blank=True,
+        verbose_name="Commentaire de l'expert",
+        help_text="Réponse de l'expert à la suggestion"
+    )
+    
+    # Ancien champ (gardé pour compatibilité)
     est_consulte_par_expert = models.BooleanField(default=False)
 
     class Meta:
         db_table = "Suggestion_Offre"
         verbose_name = "Suggestion d'Expert pour une Offre"
         unique_together = ('expert', 'offre')
+        ordering = ['-date_suggestion']
 
     def __str__(self):
         return f"Suggestion de {self.expert} pour {self.offre}"
 
-# offres/models.py - Ajouter ce modèle
 
 # offres/models.py - Ajoutez ces champs à la classe Message
 
@@ -454,3 +532,36 @@ class HistoriqueConnexion(models.Model):
     
     def __str__(self):
         return f"{self.utilisateur.email} - {self.date_connexion}"
+    
+
+class PasswordResetToken(models.Model):
+    """Token pour la réinitialisation de mot de passe"""
+    # ✅ REMPLACER User par settings.AUTH_USER_MODEL
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,  # ← MODIFICATION ICI
+        on_delete=models.CASCADE, 
+        related_name='reset_tokens'
+    )
+    token = models.CharField(max_length=100, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+    
+    class Meta:
+        verbose_name = "Token de réinitialisation"
+        verbose_name_plural = "Tokens de réinitialisation"
+    
+    def __str__(self):
+        return f"Token pour {self.user.email} - {self.created_at}"
+    
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = secrets.token_urlsafe(48)
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timedelta(hours=24)  # Expire en 24h
+        super().save(*args, **kwargs)
+    
+    @property
+    def is_valid(self):
+        """Vérifie si le token est encore valide"""
+        return not self.used and self.expires_at > timezone.now()

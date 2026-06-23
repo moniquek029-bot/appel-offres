@@ -71,3 +71,40 @@ htmlcov/
 *.crt
 secrets.json
 config_local.py
+
+
+
+# =============================================================================
+# DJANGO - MIGRATIONS & STATIC (optionnel)
+# =============================================================================
+# Si vous ne voulez pas pousser les migrations auto-générées
+# */migrations/*.py
+# !*/migrations/__init__.py
+
+# Fichiers static collectés
+staticfiles/
+static_root/
+
+# =============================================================================
+# CACHE & TEMPORAIRES
+# =============================================================================
+.cache/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# =============================================================================
+# DOCKER (si vous utilisez Docker)
+# =============================================================================
+docker-compose.override.yml
+.dockerignore
+
+# =============================================================================
+# COVERAGE & TESTS
+# =============================================================================
+.coverage
+htmlcov/
+.pytest_cache/
+nosetests.xml
+coverage.xml

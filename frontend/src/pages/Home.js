@@ -32,6 +32,10 @@ const Home = () => {
         keyword: currentFilters.keyword,
         pays: currentFilters.pays,
         max_days: currentFilters.max_days,
+        domaine: currentFilters.domaine,
+        structure: currentFilters.structure,
+        date_debut: currentFilters.date_debut,
+        date_fin: currentFilters.date_fin,
         page 
       });
       
@@ -56,7 +60,7 @@ const Home = () => {
   };
 
   useEffect(() => {
-    fetchOffres(1);
+    fetchOffres();
   }, []);
 
   const handleSearch = (searchKeyword) => {
@@ -107,7 +111,6 @@ const Home = () => {
   return (
     <div className="min-vh-100 d-flex flex-column bg-light">
       
-      {/* ✅ BANNIÈRE SUPPRIMÉE - plus de texte "Appels d'offres publics" */}
 
       {/* Barre de recherche en haut */}
       <SearchBar onSearch={handleSearch} />
@@ -117,14 +120,14 @@ const Home = () => {
         <div className="row g-4">
           
           {/* Colonne des filtres - 1/4 de largeur */}
-          <div className="col-lg-3 col-md-4">
-            <div className="sticky-top" style={{ top: '20px' }}>
+          <div className="col-lg-4 col-md-4">
+            <div className="sticky-top" style={{ top: '20px'  ,sIndex:1000}}>
               <VerticalFilters onFilterChange={handleFilterChange} />
             </div>
           </div>
           
           {/* Colonne des résultats - 3/4 de largeur */}
-          <div className="col-lg-9 col-md-8">
+          <div className="col-lg-8 col-md-8">
             
             {/* En-tête des résultats */}
             <div className="d-flex justify-content-between align-items-center mb-4">
@@ -138,7 +141,7 @@ const Home = () => {
 
             {error && (
               <div className="alert alert-danger alert-dismissible fade show">
-                ⚠️ {error}
+                 {error}
                 <button type="button" className="btn-close" onClick={() => { setError(null); fetchOffres(1); }}></button>
               </div>
             )}
@@ -163,6 +166,7 @@ const Home = () => {
                   setFilters(resetFilters);
                   fetchOffres(1, resetFilters);
                 }}>
+                  <i className="bi bi-arrow-right me-1"></i>
                   Afficher toutes les offres
                 </button>
               </div>
@@ -174,7 +178,8 @@ const Home = () => {
                 <ul className="pagination justify-content-center flex-wrap">
                   <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
                     <button className="page-link" onClick={() => handlePageChange(currentPage - 1)}>
-                      ← Précédent
+                      <i className="bi bi-arrow-left me-1"></i>
+                      Précédent
                     </button>
                   </li>
                   
@@ -192,7 +197,9 @@ const Home = () => {
                   
                   <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
                     <button className="page-link" onClick={() => handlePageChange(currentPage + 1)}>
-                      Suivant →
+                      <i className="bi bi-arrow-right me-1"></i>
+                      Suivant 
+
                     </button>
                   </li>
                 </ul>

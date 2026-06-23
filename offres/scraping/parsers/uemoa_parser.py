@@ -1,20 +1,16 @@
-"""
-Parser pour UEMOA - Version CORRIGÉE
-"""
-
+# offres/scraping/parsers/uemoa_parser.py
 from bs4 import BeautifulSoup
 from datetime import date, timedelta
 import logging
-import requests
+import re
 
 from offres.scraping.base import BaseScraper
-from offres.scraping.utils import clean_text, normalize_url, get_first_pdf_url
+from offres.scraping.utils import clean_text, normalize_url
 
 logger = logging.getLogger(__name__)
 
-
 class UEMOAParser(BaseScraper):
-    """Parser UEMOA avec extraction de VRAIES données"""
+    """Parser UEMOA - Version simplifiée et permissive"""
     
     def __init__(self, source_url: str, base_url: str = "https://www.uemoa.int", pays_defaut: str = 'BF', **kwargs):
         super().__init__(source_url, delay_seconds=3, base_url=base_url, pays_defaut=pays_defaut, **kwargs)
@@ -22,56 +18,53 @@ class UEMOAParser(BaseScraper):
     def parse(self, soup: BeautifulSoup) -> list[dict]:
         offres = []
         
-        items = soup.select('.views-row, .node, .appel-item, article')
-        if not items:
-            items = soup.find_all(['div', 'article'], limit=30)
+        # Mots-clés à rechercher
+        keywords = ['appel', 'offre', 'marché', 'avis', 'recrutement', 'consultant']
         
-        for item in items:
-            try:
-                title_link = item.select_one('a')
-                if not title_link:
-                    continue
-                
-                titre = clean_text(title_link.text)
-                if len(titre) < 10:
-                    continue
-                
-                url_source = normalize_url(title_link.get('href'), self.base_url)
-                
-                offre = {
-                    'titre': titre[:300],
-                    'organisme': "UEMOA",
-                    'description': clean_text(item.get_text())[:500],
-                    'date_publication': date.today() - timedelta(days=7),
-                    'date_cloture': date.today() + timedelta(days=30),
-                    'url_source': url_source,
-                    'url_tdr': None,
-                    'pays': self.pays_defaut,
-                    'statut': 'Ouvert',
-                    'mode_acquisition': 'AUTO',
-                }
-                
-                if titre and url_source:
-                    offres.append(offre)
-                    
-            except Exception as e:
-                logger.debug(f"Erreur parsing UEMOA: {e}")
+        # Parcourir tous les liens
+        for link in soup.find_all('a', href=True):
+            titre = clean_text(link.get_text(strip=True))
+            href = link.get('href', '')
+            
+            # Filtrer par longueur
+            if len(titre) < 15:
                 continue
+            
+            # Vérifier la présence d'un mot-clé
+            titre_lower = titre.lower()
+            if not any(kw in titre_lower for kw in keywords):
+                continue
+            
+            # Exclure les liens de navigation évidents
+            if href in ['#', '/', '/fr/appel-d-offre', '/appel-d-offre', '/fr/', '/']:
+                continue
+            
+            # Exclure les pages institutionnelles génériques
+            if any(excl in titre_lower for excl in ['le traité', 'mot du président', 'présentation de l\'uemoa']):
+                continue
+            
+            url_source = normalize_url(href, self.base_url)
+            
+            offre = {
+                'titre': titre[:300],
+                'organisme': "UEMOA",
+                'description': titre,
+                'date_publication': date.today() - timedelta(days=7),
+                'date_cloture': date.today() + timedelta(days=30),
+                'url_source': url_source,
+                'url_tdr': None,
+                'pays': self.pays_defaut,
+                'statut': 'Ouvert',
+                'mode_acquisition': 'AUTO',
+            }
+            
+            # Éviter les doublons
+            if not any(o['url_source'] == url_source for o in offres):
+                offres.append(offre)
         
         logger.info(f"✅ UEMOA: {len(offres)} offre(s) extraite(s)")
         return offres
     
-    def parse_detail_page(self, soup: BeautifulSoup, base_url: str) -> dict | None:
-        try:
-            url_tdr = get_first_pdf_url(soup, base_url)
-            if url_tdr:
-                return {'url_tdr': url_tdr}
-            return None
-        except Exception as e:
-            logger.warning(f"Erreur extraction PDF UEMOA: {e}")
-            return None
-    
-    # ✅ CORRECTION: run() sans headers
     def run(self) -> list[dict]:
         logger.info(f"🕷️ UEMOA scraping: {self.source_url}")
         try:

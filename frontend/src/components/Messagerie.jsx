@@ -182,7 +182,7 @@ const Messagerie = () => {
     <div className="card border-0 shadow-sm">
       <div className="card-header bg-white border-0 py-3">
         <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-          <h5 className="mb-0">💬 Messagerie</h5>
+          <h5 className="mb-0"> Messagerie</h5>
           {nonLusCount > 0 && (
             <span className="badge bg-danger rounded-pill">{nonLusCount} non lu(s)</span>
           )}
@@ -194,6 +194,7 @@ const Messagerie = () => {
             onClick={() => setMessageFilter('all')}
             style={{ fontSize: '0.75rem' }}
           >
+            <i className="bi bi-chat-dots-fill me-1"></i>
             Tous ({messages.length})
           </button>
           <button 
@@ -201,21 +202,25 @@ const Messagerie = () => {
             onClick={() => setMessageFilter('received')}
             style={{ fontSize: '0.75rem' }}
           >
-            📥 Reçus ({receivedCount})
+            <i className="bi bi-inbox-fill me-1"></i>
+             Reçus ({receivedCount})
           </button>
           <button 
             className={`btn ${messageFilter === 'sent' ? 'btn-primary' : 'btn-outline-secondary'}`}
             onClick={() => setMessageFilter('sent')}
             style={{ fontSize: '0.75rem' }}
           >
-            📤 Envoyés ({sentCount})
+            <i className="bi bi-send-fill me-1"></i>
+             Envoyés ({sentCount})
           </button>
           <button 
             className={`btn ${messageFilter === 'unread' ? 'btn-primary' : 'btn-outline-secondary'}`}
             onClick={() => setMessageFilter('unread')}
             style={{ fontSize: '0.75rem' }}
           >
-            🔴 Non lus ({nonLusCount})
+            <i className="bi bi-envelope-fill ms-1"></i>
+             Non lus ({nonLusCount})
+             
           </button>
         </div>
       </div>
@@ -224,7 +229,7 @@ const Messagerie = () => {
         
         {/* Formulaire d'envoi */}
         <div className="mb-4 p-3 bg-light rounded">
-          <h6 className="mb-3">📝 Nouveau message à l'administrateur</h6>
+          <h6 className="mb-3"> Nouveau message à l'administrateur</h6>
           <form onSubmit={handleSend}>
             {error && <div className="alert alert-danger small py-1">{error}</div>}
             {success && <div className="alert alert-success small py-1">{success}</div>}
@@ -249,19 +254,20 @@ const Messagerie = () => {
               />
             </div>
             <button type="submit" className="btn btn-primary btn-sm" disabled={sending}>
-              {sending ? 'Envoi...' : '📤 Envoyer'}
+              {sending ? 'Envoi...' : ' Envoyer'}
+              <i className="bi bi-send ms-1"></i>
             </button>
           </form>
         </div>
 
-        <h6 className="mb-3">📋 Historique des messages</h6>
+        <h6 className="mb-3"> Historique des messages</h6>
         {filteredMessages.length === 0 ? (
           <div className="text-center py-4">
             <p className="text-muted mb-0 small">
-              {messageFilter === 'sent' ? '✉️ Aucun message envoyé' : 
-               messageFilter === 'received' ? '📭 Aucun message reçu' :
-               messageFilter === 'unread' ? '✅ Aucun message non lu' :
-               '💬 Aucun message'}
+              {messageFilter === 'sent' ? ' Aucun message envoyé' : 
+               messageFilter === 'received' ? ' Aucun message reçu' :
+               messageFilter === 'unread' ? ' Aucun message non lu' :
+               ' Aucun message'}
             </p>
           </div>
         ) : (
@@ -283,16 +289,16 @@ const Messagerie = () => {
                       <div className="d-flex align-items-center gap-2 mb-1 flex-wrap">
                         <strong className="small">
                           {isSentByMe ? (
-                            <>👤 <span className="text-success">Vous (message envoyé)</span></>
+                            <> <span className="text-success">Vous (message envoyé)</span></>
                           ) : (
-                            <>📧 {getExpediteurNom(msg) || 'Admin'}</>
+                            <> {getExpediteurNom(msg) || 'Admin'}</>
                           )}
                         </strong>
                         {!isSentByMe && isUserDestinataire(msg) && (
                           <span className="badge bg-secondary">Reçu</span>
                         )}
-                        {isReply && <span className="badge bg-success">✅ Réponse</span>}
-                        {isUnread && <span className="badge bg-primary">🔴 Nouveau</span>}
+                        {isReply && <span className="badge bg-success"> Réponse</span>}
+                        {isUnread && <span className="badge bg-primary"> Nouveau</span>}
                         <small className="text-muted">
                           {new Date(msg.date_envoi).toLocaleString('fr-FR')}
                         </small>
@@ -302,7 +308,7 @@ const Messagerie = () => {
                       
                       {msg.reponse_contenu && (
                         <div className="mt-2 p-2 bg-light rounded" style={{ borderLeft: '3px solid #198754' }}>
-                          <small className="text-success fw-semibold">📨 Réponse :</small>
+                          <small className="text-success fw-semibold"> Réponse :</small>
                           <p className="mb-0 small mt-1">{msg.reponse_contenu}</p>
                         </div>
                       )}
@@ -316,7 +322,7 @@ const Messagerie = () => {
                         }}
                         title="Supprimer"
                       >
-                        🗑️
+                        <i className="bi bi-trash"></i>
                       </button>
                     )}
                   </div>

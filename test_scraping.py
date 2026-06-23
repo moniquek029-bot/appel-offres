@@ -3,7 +3,40 @@
 test_scraping.py - Test rapide du scraping GlobalTenders
 Exécution : python test_scraping.py
 """
+import os# test_scraper.py
 import os
+import django
+import requests
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'plateforme_offres.settings')
+django.setup()
+
+from offres.scraping.parsers.unfpa_parser import UNFPAParser
+
+# Test UNFPA
+url_test = "https://burkinafaso.unfpa.org/fr/node/add/procurement_notice"
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+}
+
+print(f"🔍 Test de : {url_test}")
+response = requests.get(url_test, headers=headers, timeout=15)
+print(f"📊 Status code : {response.status_code}")
+print(f"📏 Taille HTML : {len(response.text)} caractères")
+
+# Sauvegarder le HTML pour analyse
+with open('debug_unfpa.html', 'w', encoding='utf-8') as f:
+    f.write(response.text)
+print("💾 HTML sauvegardé dans debug_unfpa.html")
+
+# Tester le parser
+parser = UNFPAParser(url_test)
+offres = parser.run()
+print(f"📦 Nombre d'offres trouvées : {len(offres)}")
+if offres:
+    print(f"✅ Première offre : {offres[0]}")
+else:
+    print("❌ Aucune offre extraite - Vérifier les sélecteurs CSS")
 import django
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'plateforme_offres.settings')

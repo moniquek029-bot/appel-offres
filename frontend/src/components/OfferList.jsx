@@ -18,13 +18,14 @@ const OfferList = () => {
 
   const fetchOffers = async () => {
     setLoading(true);
+    setOffers([]); // ✨ CORRECTION : Force la réinitialisation de la liste à l'écran pendant le chargement
     try {
       const { results, count } = await searchOffres({ page: currentPage, page_size: ITEMS_PER_PAGE });
       setOffers(Array.isArray(results) ? results : []);
       setTotalCount(count || 0);
       setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
     } catch (error) {
-      console.error('Erreur:', error);
+      console.error('Erreur lors de la récupération des offres:', error);
       setOffers([]);
     } finally {
       setLoading(false);
@@ -69,7 +70,7 @@ const OfferList = () => {
     return (
       <div className="container py-5 text-center">
         <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Chargement...</span>
+          <span className="visually-hidden">Chargement des offres en cours...</span>
         </div>
       </div>
     );
@@ -77,9 +78,22 @@ const OfferList = () => {
 
   return (
     <div className="container py-4">
-      <h2 className="mb-4">Appels d'offres disponibles</h2>
-      <p className="text-muted small mb-3">{totalCount} offre(s) au total</p>
+      {/* En-tête avec bouton de rafraîchissement manuel intégré */}
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h2 className="mb-1">Appels d'offres disponibles</h2>
+          <p className="text-muted small mb-0">{totalCount} offre(s) enregistrée(s) au total</p>
+        </div>
+        <button 
+          className="btn btn-outline-primary btn-sm d-flex align-items-center gap-2"
+          onClick={fetchOffers}
+          title="Rafraîchir les données"
+        >
+          Actualiser la liste
+        </button>
+      </div>
       
+      {/* Grille des offres */}
       <div className="row g-3">
         {offers.length > 0 ? (
           offers.map(offer => (
@@ -89,14 +103,14 @@ const OfferList = () => {
           ))
         ) : (
           <div className="col-12">
-            <div className="alert alert-info text-center">
-              Aucune offre disponible pour le moment.
+            <div className="alert alert-info text-center py-4">
+              Aucune offre disponible pour le moment. Lancez un scraping depuis l'administration.
             </div>
           </div>
         )}
       </div>
 
-      {/* Pagination */}
+      {/* Navigation / Pagination */}
       {totalPages > 1 && (
         <nav className="mt-5" aria-label="Pagination des offres">
           <ul className="pagination justify-content-center flex-wrap">
@@ -109,7 +123,10 @@ const OfferList = () => {
             
             {/* Numéros de page */}
             {getPageNumbers().map((page, index) => (
-              <li key={index} className={`page-item ${page === currentPage ? 'active' : ''} ${page === '...' ? 'disabled' : ''}`}>
+              <li 
+                key={index} 
+                className={`page-item ${page === currentPage ? 'active' : ''} ${page === '...' ? 'disabled' : ''}`}
+              >
                 {page === '...' ? (
                   <span className="page-link">...</span>
                 ) : (

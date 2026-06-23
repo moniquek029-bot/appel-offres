@@ -4,7 +4,7 @@ Vues avec contrôle d'accès par rôle et gestion des profils obligatoires.
 ✅ VERSION CORRIGÉE : Plus de doublons, scraping synchrone, imports organisés
 """
 
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.conf import settings
 from django.db.models import Q, Count
 from django.utils import timezone
@@ -13,6 +13,19 @@ from django.contrib.admin.models import LogEntry
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
+
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAdminUser
+from rest_framework.response import Response
+from django.contrib.auth.models import User
+from django.core.mail import send_mail
+from django.conf import settings
+from .models import PasswordResetToken
+from .serializers import PasswordResetRequestSerializer, PasswordResetConfirmSerializer
+from .tasks import send_password_reset_email
+import logging
 from datetime import timedelta
 import traceback
 import os
@@ -156,16 +169,14 @@ class ChangePasswordView(generics.UpdateAPIView):
 
 # =============================================================================
 # APPELS D'OFFRES - ACCÈS DIFFÉRENCIÉ
-# =============================================================================
 
-class AppelOffreViewSet(viewsets.ReadOnlyModelViewSet):
+
+class AppelOffreViewSet(viewsets.ModelViewSet):
     """
-    Consultation des offres avec recherche avancée et filtres
-    - Accessible à TOUS (même non connectés pour la lecture)
-    - Visiteurs : liste + recherche + filtres (sans url_tdr)
-    - Connectés : détails complets + URL TDR officielle
+    Consultation et gestion des offres avec recherche avancée et filtres
+   
     """
-    permission_classes = [IsAuthenticatedOrReadOnlyPublic]
+    queryset = AppelOffre.objects.all()
     serializer_class = AppelOffreSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     
@@ -178,40 +189,111 @@ class AppelOffreViewSet(viewsets.ReadOnlyModelViewSet):
     }
     
     search_fields = ['titre', 'organisme', 'description']
-    ordering_fields = ['date_publication', 'date_cloture', 'titre']
-    ordering = ['-date_publication']
+    ordering_fields = ['date_publication', 'date_cloture', 'titre', 'date_scraping']
+    ordering = ['-date_publication', '-date_scraping']
+
+    def get_permissions(self):
+        """
+        Permissions différenciées selon l'action
+        - Lecture : Public
+        - Écriture : Admin uniquement
+        """
+        if self.action in ['list', 'retrieve', 'recent_offres', 'download_pdf']:
+            # Actions publiques
+            permission_classes = [permissions.AllowAny]
+        else:
+            # Actions réservées aux admins
+            permission_classes = [permissions.IsAdminUser]
+        
+        return [permission() for permission in permission_classes]
 
     def get_queryset(self):
-        queryset = AppelOffre.objects.filter(statut='Ouvert')
+        """Récupère le queryset avec filtres dynamiques"""
+        queryset = AppelOffre.objects.all()
         
+        # Filtre par statut (par défaut : Ouvert)
         statut = self.request.query_params.get('statut')
         if statut:
             queryset = queryset.filter(statut=statut)
+        else:
+            # Par défaut, montrer seulement les offres ouvertes
+            if self.action == 'list':
+                queryset = queryset.filter(statut='Ouvert')
         
+        # Recherche par mots-clés
         keywords = self.request.query_params.getlist('keywords', [])
+        if not keywords:
+            # Support pour le paramètre unique 'keyword'
+            keyword = self.request.query_params.get('keyword')
+            if keyword:
+                keywords = [keyword]
+        
         if keywords:
             q_objects = Q()
             for keyword in keywords:
-                q_objects |= Q(titre__icontains=keyword) | Q(description__icontains=keyword)
+                q_objects |= (
+                    Q(titre__icontains=keyword) | 
+                    Q(organisme__icontains=keyword) |
+                    Q(description__icontains=keyword)
+                )
             queryset = queryset.filter(q_objects)
         
+        # Filtre par date de clôture maximale
         max_days = self.request.query_params.get('max_days')
         if max_days:
-            limit_date = timezone.now().date() + timedelta(days=int(max_days))
-            queryset = queryset.filter(date_cloture__lte=limit_date)
+            try:
+                limit_date = timezone.now().date() + timedelta(days=int(max_days))
+                queryset = queryset.filter(date_cloture__lte=limit_date)
+            except ValueError:
+                pass
         
+        # Filtre par pays
         countries = self.request.query_params.getlist('countries', [])
+        if not countries:
+            pays = self.request.query_params.get('pays')
+            if pays:
+                countries = [pays]
+        
         if countries:
             queryset = queryset.filter(pays__in=countries)
         
-        return queryset.order_by('-date_publication')
+        # Tri par publication ET par fraîcheur de scraping
+        return queryset.order_by('-date_publication', '-date_scraping')
+
+    def create(self, request, *args, **kwargs):
+        """
+        Création d'une offre avec support d'upload de fichier
+        ✅ Gère automatiquement le mode_acquisition='MANUEL'
+        """
+        # Forcer le mode MANUEL pour les créations via l'interface admin
+        data = request.data.copy()
+        if request.user.is_staff:
+            data['mode_acquisition'] = 'MANUEL'
+        
+        serializer = self.get_serializer(data=data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
+        return Response(
+            {
+                'message': '✅ Offre publiée avec succès',
+                'offre': serializer.data
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+    def perform_create(self, serializer):
+        """Sauvegarde avec mode MANUEL par défaut"""
+        serializer.save(mode_acquisition='MANUEL')
 
     def retrieve(self, request, *args, **kwargs):
+        """Détails d'une offre"""
         instance = self.get_object()
         serializer = self.get_serializer(instance, context={'request': request})
         return Response(serializer.data)
     
     def list(self, request, *args, **kwargs):
+        """Liste paginée des offres"""
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -222,45 +304,44 @@ class AppelOffreViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='recent')
     def recent_offres(self, request):
+        """Offres récentes (7 derniers jours)"""
         seven_days_ago = timezone.now().date() - timedelta(days=7)
         recent = AppelOffre.objects.filter(
             date_publication__gte=seven_days_ago,
             statut='Ouvert'
-        ).order_by('-date_publication')[:20]
+        ).order_by('-date_publication', '-date_scraping')[:20]
         serializer = self.get_serializer(recent, many=True, context={'request': request})
         return Response(serializer.data)
     
-    @action(detail=False, methods=['post'], url_path='create-manuel', permission_classes=[permissions.IsAdminUser])
+    @action(detail=False, methods=['post'], url_path='create-manuel')
     def create_manuel(self, request):
-        serializer = self.get_serializer(data=request.data)
+        """
+        Création manuelle (action explicite)
+        ✅ Supporte l'upload de fichier PDF
+        """
+        serializer = self.get_serializer(
+            data=request.data, 
+            context={'request': request}
+        )
         serializer.is_valid(raise_exception=True)
         offre = serializer.save(mode_acquisition='MANUEL')
+        
         return Response({
-            'message': 'Offre publiée avec succès.',
+            'message': '✅ Offre publiée avec succès.',
             'offre': AppelOffreSerializer(offre, context={'request': request}).data
         }, status=status.HTTP_201_CREATED)
     
-    # ✅ AJOUT DE L'ACTION DOWNLOAD-PDF
     @action(detail=True, methods=['get'], url_path='download-pdf')
     def download_pdf(self, request, pk=None):
         """
-        Télécharge le fichier PDF associé à l'offre
-        - Pour les PDF stockés localement : téléchargement direct
-        - Pour les URLs externes : retourne l'URL de redirection
+        Téléchargement du PDF
+        ✅ Priorité au fichier uploadé, sinon redirection vers URL externe
         """
         offre = self.get_object()
         
-        # Vérifier si l'utilisateur est authentifié
-        if not request.user.is_authenticated:
-            return Response(
-                {'error': 'Authentification requise pour télécharger le PDF'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        
-        # Cas 1: PDF stocké localement
+        # Priorité 1 : Fichier PDF uploadé localement
         if offre.fichier_pdf and offre.fichier_pdf.name:
             try:
-                # Vérifier si le fichier existe physiquement
                 if os.path.exists(offre.fichier_pdf.path):
                     return FileResponse(
                         open(offre.fichier_pdf.path, 'rb'),
@@ -280,19 +361,18 @@ class AppelOffreViewSet(viewsets.ReadOnlyModelViewSet):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
         
-        # Cas 2: URL externe (redirection)
+        # Priorité 2 : URL externe
         if offre.url_tdr:
             return Response(
                 {'redirect_url': offre.url_tdr},
                 status=status.HTTP_200_OK
             )
         
-        # Cas 3: Aucun PDF disponible
+        # Aucun PDF disponible
         return Response(
             {'error': 'Aucun PDF disponible pour cette offre'},
             status=status.HTTP_404_NOT_FOUND
         )
-
 # =============================================================================
 # ESPACE EXPERT - DASHBOARD
 # =============================================================================
@@ -596,47 +676,135 @@ class MessageViewSet(viewsets.ModelViewSet):
 
 # =============================================================================
 # ADMIN DASHBOARD & STATS
-# =============================================================================
-
+# ==========================================================================
 class AdminDashboardView(APIView):
     """Tableau de bord administrateur avec statistiques"""
     permission_classes = [permissions.IsAdminUser]
     
     def get(self, request):
-        total_offres = AppelOffre.objects.count()
-        offres_par_source = [{'nom': s.nom, 'count': AppelOffre.objects.filter(source_origine=s).count()} for s in SourceScraping.objects.all() if AppelOffre.objects.filter(source_origine=s).count() > 0]
+        # =============================================================
+        # 1. STATISTIQUES DES OFFRES (sans les offres de démonstration)
+        # =============================================================
+        
+        # ✅ Exclure les offres de démonstration
+        offres_reelles = AppelOffre.objects.exclude(
+            Q(titre__icontains='demo') | Q(titre__icontains='Demo')
+        )
+        
+        total_offres = offres_reelles.count()
+        offres_scrapees = offres_reelles.filter(mode_acquisition='AUTO').count()
+        offres_manuelles = offres_reelles.filter(mode_acquisition='MANUEL').count()
+        offres_actives = offres_reelles.filter(statut='Ouvert').count()
+        
+        # Offres par source (uniquement les sources avec offres)
+        offres_par_source = []
+        for s in SourceScraping.objects.all():
+            count = offres_reelles.filter(source_origine=s).count()
+            if count > 0:
+                offres_par_source.append({'nom': s.nom, 'count': count})
+        
+        # =============================================================
+        # 2. STATISTIQUES DES UTILISATEURS
+        # =============================================================
         
         date_limite = timezone.now() - timedelta(days=30)
         
-        connexions_aujourdhui = HistoriqueConnexion.objects.filter(date_connexion__date=timezone.now().date()).count() if 'HistoriqueConnexion' in globals() else 0
-        connexions_semaine = HistoriqueConnexion.objects.filter(date_connexion__gte=timezone.now() - timedelta(days=7)).count() if 'HistoriqueConnexion' in globals() else 0
+        total_utilisateurs = Utilisateur.objects.count()
+        experts = Utilisateur.objects.filter(role='EXPERT').count()
+        bureaux = Utilisateur.objects.filter(role='BUREAU').count()
+        admins = Utilisateur.objects.filter(is_staff=True).count()
+        nouveaux_30j = Utilisateur.objects.filter(date_joined__gte=date_limite).count()
         
-        messages_non_lus = Message.objects.filter(destinataire=request.user, est_lu=False).count() if 'Message' in globals() else 0
+        # =============================================================
+        # 3. STATISTIQUES DES CONNEXIONS
+        # =============================================================
         
-        suggestions_envoyees = SuggestionOffre.objects.count() if 'SuggestionOffre' in globals() else 0
-        suggestions_consultees = SuggestionOffre.objects.filter(est_consulte_par_expert=True).count() if 'SuggestionOffre' in globals() else 0
+        try:
+            from offres.models import HistoriqueConnexion
+            connexions_aujourdhui = HistoriqueConnexion.objects.filter(
+                date_connexion__date=timezone.now().date()
+            ).count()
+            connexions_semaine = HistoriqueConnexion.objects.filter(
+                date_connexion__gte=timezone.now() - timedelta(days=7)
+            ).count()
+        except (ImportError, NameError):
+            connexions_aujourdhui = 0
+            connexions_semaine = 0
+        
+        # =============================================================
+        # 4. STATISTIQUES DES MESSAGES
+        # =============================================================
+        
+        try:
+            from offres.models import Message
+            messages_non_lus = Message.objects.filter(
+                destinataire=request.user, 
+                est_lu=False
+            ).count()
+            messages_total = Message.objects.filter(
+                Q(expediteur=request.user) | Q(destinataire=request.user)
+            ).count()
+            messages_envoyes = Message.objects.filter(expediteur=request.user).count()
+            messages_recus = Message.objects.filter(destinataire=request.user).count()
+        except (ImportError, NameError):
+            messages_non_lus = 0
+            messages_total = 0
+            messages_envoyes = 0
+            messages_recus = 0
+        
+        # =============================================================
+        # 5. STATISTIQUES DES SUGGESTIONS
+        # =============================================================
+        
+        try:
+            from offres.models import SuggestionOffre
+            suggestions_envoyees = SuggestionOffre.objects.count()
+            suggestions_consultees = SuggestionOffre.objects.filter(
+                est_consulte_par_expert=True
+            ).count()
+            suggestions_en_attente = suggestions_envoyees - suggestions_consultees
+        except (ImportError, NameError):
+            suggestions_envoyees = 0
+            suggestions_consultees = 0
+            suggestions_en_attente = 0
+        
+        # =============================================================
+        # 6. CONSTRUCTION DE LA RÉPONSE
+        # =============================================================
         
         data = {
             'offres': {
                 'total': total_offres,
-                'scrapees': AppelOffre.objects.filter(mode_acquisition='AUTO').count(),
-                'manuelles': AppelOffre.objects.filter(mode_acquisition='MANUEL').count(),
-                'actives': AppelOffre.objects.filter(statut='Ouvert').count(),
+                'scrapees': offres_scrapees,
+                'manuelles': offres_manuelles,
+                'actives': offres_actives,
                 'par_source': offres_par_source,
             },
             'utilisateurs': {
-                'total': Utilisateur.objects.count(),
-                'experts': Utilisateur.objects.filter(role='EXPERT').count(),
-                'bureaux': Utilisateur.objects.filter(role='BUREAU').count(),
-                'admins': Utilisateur.objects.filter(is_staff=True).count(),
-                'nouveaux_30j': Utilisateur.objects.filter(date_joined__gte=date_limite).count(),
+                'total': total_utilisateurs,
+                'experts': experts,
+                'bureaux': bureaux,
+                'admins': admins,
+                'nouveaux_30j': nouveaux_30j,
             },
-            'connexions': {'aujourdhui': connexions_aujourdhui, 'semaine': connexions_semaine},
-            'messages': {'non_lus': messages_non_lus, 'total': Message.objects.count() if 'Message' in globals() else 0},
-            'suggestions': {'envoyees': suggestions_envoyees, 'consultees': suggestions_consultees},
+            'connexions': {
+                'aujourdhui': connexions_aujourdhui,
+                'semaine': connexions_semaine,
+            },
+            'messages': {
+                'non_lus': messages_non_lus,
+                'total': messages_total,
+                'envoyes': messages_envoyes,
+                'recus': messages_recus,
+            },
+            'suggestions': {
+                'envoyees': suggestions_envoyees,
+                'consultees': suggestions_consultees,
+                'en_attente': suggestions_en_attente,
+            }
         }
+        
         return Response(data)
-
 
 # =============================================================================
 # ADMIN - GESTION DES SOURCES DE SCRAPPING
@@ -732,9 +900,6 @@ class AdminSourcesRunView(APIView):
 # ADMIN - GESTION DES UTILISATEURS (✅ CORRIGÉ)
 # =============================================================================
 
-# =============================================================================
-# ADMIN - GESTION DES UTILISATEURS (✅ CORRIGÉ - Version finale)
-# =============================================================================
 
 class AdminUtilisateurViewSet(viewsets.ModelViewSet):
     """Gestion complète des utilisateurs par l'admin"""
@@ -867,10 +1032,71 @@ class AdminSuggestionOffreViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAdminUser]
     queryset = SuggestionOffre.objects.select_related('expert__utilisateur', 'offre')
     
+    def create(self, request, *args, **kwargs):
+        """
+        ✅ Création d'une suggestion avec conversion automatique ID utilisateur → ID ProfilExpert
+        """
+        print(f"📥 Données reçues: {request.data}")
+        
+        # Copier les données pour modification
+        data = request.data.copy()
+        
+        # ✅ Convertir l'ID utilisateur en ID ProfilExpert si nécessaire
+        if 'expert' in data:
+            try:
+                expert_id = int(data['expert'])
+                
+                # Essayer d'abord comme ID de ProfilExpert
+                try:
+                    profil = ProfilExpert.objects.get(id=expert_id)
+                    data['expert'] = profil.id
+                    print(f"✅ ID ProfilExpert trouvé: {profil.id}")
+                except ProfilExpert.DoesNotExist:
+                    # Essayer comme ID d'utilisateur
+                    try:
+                        user = Utilisateur.objects.get(id=expert_id)
+                        profil = ProfilExpert.objects.get(utilisateur=user)
+                        data['expert'] = profil.id
+                        print(f"✅ Converti ID utilisateur {expert_id} → ID ProfilExpert {profil.id}")
+                    except Utilisateur.DoesNotExist:
+                        return Response(
+                            {'expert': [f'Utilisateur ID {expert_id} non trouvé']},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    except ProfilExpert.DoesNotExist:
+                        return Response(
+                            {'expert': [f'Profil expert non trouvé pour l\'utilisateur ID {expert_id}']},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+            except (ValueError, TypeError):
+                return Response(
+                    {'expert': ['ID expert invalide']},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Créer le serializer avec les données modifiées
+        serializer = self.get_serializer(data=data)
+        
+        if serializer.is_valid():
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED,
+                headers=headers
+            )
+        else:
+            print(f"❌ Erreurs de validation: {serializer.errors}")
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
     def perform_create(self, serializer):
         suggestion = serializer.save()
         Notification.objects.create(
-            destinataire=suggestion.expert.utilisateur, offre_liee=suggestion.offre,
+            destinataire=suggestion.expert.utilisateur,
+            offre_liee=suggestion.offre,
             objet='Nouvelle suggestion d\'offre',
             message=f'Un administrateur vous suggère: {suggestion.offre.titre[:100]}'
         )
@@ -879,7 +1105,8 @@ class AdminSuggestionOffreViewSet(viewsets.ModelViewSet):
     def envoyer_suggestion(self, request, pk=None):
         suggestion = self.get_object()
         Notification.objects.create(
-            destinataire=suggestion.expert.utilisateur, offre_liee=suggestion.offre,
+            destinataire=suggestion.expert.utilisateur,
+            offre_liee=suggestion.offre,
             objet=f"Suggestion: {suggestion.offre.titre}",
             message=f"L'admin vous suggère cette offre: {suggestion.offre.titre}"
         )
@@ -891,15 +1118,15 @@ class AdminSuggestionOffreViewSet(viewsets.ModelViewSet):
         suggestion_id = suggestion.id
         suggestion.delete()
         LogEntry.objects.log_action(
-            user_id=request.user.id, content_type_id=suggestion._meta.content_type_id,
-            object_id=suggestion_id, object_repr=f'Suggestion #{suggestion_id}',
-            action_flag=3, change_message='Suggestion supprimée par admin'
+            user_id=request.user.id,
+            content_type_id=suggestion._meta.content_type_id,
+            object_id=suggestion_id,
+            object_repr=f'Suggestion #{suggestion_id}',
+            action_flag=3,
+            change_message='Suggestion supprimée par admin'
         )
         return Response({'message': 'Suggestion supprimée'}, status=status.HTTP_200_OK)
 
-
-# =============================================================================
-# ADMIN : RÉPONDRE AUX MESSAGES
 # =============================================================================
 
 # offres/views.py - Mettre à jour AdminReponseMessageView
@@ -950,34 +1177,42 @@ class AdminReponseMessageView(APIView):
 # ADMIN - EFFACER L'HISTORIQUE
 # =============================================================================
 
+
 class AdminHistoryView(APIView):
-    """Gestion de l'historique admin - effacement sécurisé"""
+    """Gestion de l'historique des connexions (Visualisation et suppression globale)"""
     permission_classes = [permissions.IsAdminUser]
     
     def get(self, request):
-        logs = LogEntry.objects.select_related('user', 'content_type').order_by('-action_time')[:100]
+        """Récupère les dernières connexions pour l'affichage de l'historique"""
+        # On récupère les 100 dernières connexions
+        connexions = HistoriqueConnexion.objects.select_related('utilisateur').order_by('-date_connexion')[:100]
+        
         return Response([{
-            'id': log.id, 'action_type': log.get_action_flag_display(),
-            'utilisateur_email': log.user.email if log.user else 'Système',
-            'date_action': log.action_time, 'details': log.change_message,
-            'object_repr': log.object_repr
-        } for log in logs])
+            'id': c.id,
+            'utilisateur_email': c.utilisateur.email if c.utilisateur else 'Inconnu',
+            'utilisateur_nom': f"{c.utilisateur.first_name} {c.utilisateur.last_name}".strip() if c.utilisateur else 'Inconnu',
+            'utilisateur_role': c.utilisateur.role if c.utilisateur else 'EXPERT',
+            'date_action': c.date_connexion,  # Aligné avec la clé attendue par le Front
+            'ip_address': c.ip_address,
+            'user_agent': c.user_agent
+        } for c in connexions])
     
     def post(self, request):
+        """Vide l'historique suite à la validation du formulaire de l'image"""
+        # Vérification stricte du texte saisi dans le formulaire React
         if request.data.get('confirm') != 'EFFACER TOUT':
-            return Response({'error': 'Confirmation requise: tapez "EFFACER TOUT"'}, status=status.HTTP_400_BAD_REQUEST)
-        admin_password = request.data.get('admin_password')
-        if not request.user.check_password(admin_password):
-            return Response({'error': 'Mot de passe administrateur incorrect'}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {'error': '❌ Confirmation invalide : vous devez taper "EFFACER TOUT"'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-        count, _ = LogEntry.objects.all().delete()
-        LogEntry.objects.log_action(
-            user_id=request.user.id, content_type_id=None, object_id=None,
-            object_repr='Historique admin', action_flag=3,
-            change_message=f'Historique effacé ({count} entrées) par admin'
+        # Suppression effective de toutes les lignes dans la table HistoriqueConnexion
+        count, _ = HistoriqueConnexion.objects.all().delete()
+        
+        return Response(
+            {'message': f'✅ {count} entrées d\'historique ont été supprimées avec succès.'}, 
+            status=status.HTTP_200_OK
         )
-        return Response({'message': f'{count} entrées d\'historique effacées'}, status=status.HTTP_200_OK)
-
 
 # =============================================================================
 # NOTIFICATIONS & PRÉFÉRENCES (✅ DOUBLON SUPPRIMÉ, UNIQUE VERSION SÉCURISÉE)
@@ -1037,14 +1272,7 @@ class OffresPubliquesView(generics.ListAPIView):
 # TÉLÉCHARGEMENT DE PDF
 # =============================================================================
 
-# offres/views.py - Ajoutez cette vue
 
-from django.http import FileResponse, Http404
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status, permissions
-from .models import AppelOffre
-import os
 
 class TelechargerPDFView(APIView):
     """
@@ -1097,3 +1325,536 @@ class TelechargerPDFView(APIView):
             {'error': 'Aucun PDF disponible pour cette offre'},
             status=status.HTTP_404_NOT_FOUND
         )
+
+
+class SourceScrapingViewSet(viewsets.ModelViewSet):
+    queryset = SourceScraping.objects.all()
+    serializer_class = SourceScrapingSerializer
+    
+    def create(self, request, *args, **kwargs):
+        try:
+            print(f" Données reçues: {request.data}")  # ← Debug
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        except Exception as e:
+            print(f"❌ Erreur création source: {e}")  # ← Debug
+            print(f"❌ Erreurs de validation: {serializer.errors if 'serializer' in locals() else 'N/A'}")
+            return Response(
+                {"error": str(e), "details": serializer.errors if 'serializer' in locals() else None},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+# offres/views.py (ajouter à la fin)
+
+
+
+logger = logging.getLogger(__name__)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def password_reset_request(request):
+    """
+    Étape 1 : L'utilisateur demande la réinitialisation en fournissant son email
+    """
+    serializer = PasswordResetRequestSerializer(data=request.data)
+    
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Email invalide'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    email = serializer.validated_data['email'].lower()
+    
+    try:
+        user = User.objects.get(email=email)
+        
+        # Invalider les anciens tokens
+        PasswordResetToken.objects.filter(user=user, used=False).update(used=True)
+        
+        # Créer un nouveau token
+        reset_token = PasswordResetToken.objects.create(user=user)
+        
+        # ✅ ENVOI SYNCHRONE (sans Celery) - Fonctionne sur Windows
+        from .tasks import send_password_reset_email
+        try:
+            # Appel direct sans .delay()
+            send_password_reset_email(user.email, reset_token.token)
+            logger.info(f"✅ Email de réinitialisation envoyé à {email}")
+        except Exception as email_error:
+            logger.error(f"❌ Erreur envoi email: {email_error}")
+            # On continue même si l'email échoue (l'utilisateur peut redemander)
+        
+        # TOUJOURS retourner succès même si l'email n'existe pas (sécurité)
+        return Response(
+            {
+                'message': 'Si cet email est associé à un compte, vous recevrez un lien de réinitialisation.',
+                'email': email
+            },
+            status=status.HTTP_200_OK
+        )
+        
+    except User.DoesNotExist:
+        # Sécurité : ne pas révéler si l'email existe ou non
+        return Response(
+            {
+                'message': 'Si cet email est associé à un compte, vous recevrez un lien de réinitialisation.'
+            },
+            status=status.HTTP_200_OK
+        )
+    except Exception as e:
+        logger.error(f"❌ Erreur demande réinitialisation: {e}")
+        return Response(
+            {'error': 'Une erreur est survenue. Veuillez réessayer.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def password_reset_confirm(request):
+    """
+    Étape 2 : L'utilisateur confirme la réinitialisation avec le token et le nouveau mot de passe
+    """
+    serializer = PasswordResetConfirmSerializer(data=request.data)
+    
+    if not serializer.is_valid():
+        return Response(
+            {'error': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    token_str = serializer.validated_data['token']
+    new_password = serializer.validated_data['new_password']
+    
+    try:
+        # Récupérer le token
+        reset_token = PasswordResetToken.objects.get(token=token_str)
+        
+        # Vérifier la validité
+        if not reset_token.is_valid:
+            return Response(
+                {'error': 'Ce lien a expiré ou a déjà été utilisé. Veuillez faire une nouvelle demande.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Mettre à jour le mot de passe
+        user = reset_token.user
+        user.set_password(new_password)
+        user.save()
+        
+        # Marquer le token comme utilisé
+        reset_token.used = True
+        reset_token.save()
+        
+        logger.info(f"✅ Mot de passe réinitialisé pour {user.email}")
+        
+        return Response(
+            {'message': 'Votre mot de passe a été réinitialisé avec succès. Vous pouvez maintenant vous connecter.'},
+            status=status.HTTP_200_OK
+        )
+        
+    except PasswordResetToken.DoesNotExist:
+        return Response(
+            {'error': 'Lien de réinitialisation invalide.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    except Exception as e:
+        logger.error(f"❌ Erreur confirmation réinitialisation: {e}")
+        return Response(
+            {'error': 'Une erreur est survenue. Veuillez réessayer.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def password_reset_validate_token(request, token):
+    """
+    Vérifie si un token est valide (utilisé avant d'afficher le formulaire)
+    """
+    try:
+        reset_token = PasswordResetToken.objects.get(token=token)
+        if reset_token.is_valid:
+            return Response({'valid': True}, status=status.HTTP_200_OK)
+        else:
+            return Response(
+                {'valid': False, 'error': 'Ce lien a expiré ou a déjà été utilisé.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    except PasswordResetToken.DoesNotExist:
+        return Response(
+            {'valid': False, 'error': 'Lien de réinitialisation invalide.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def admin_user_details(request, user_id):
+    """
+    Récupère les détails complets d'un utilisateur avec son profil
+    ✅ CORRIGÉ : Utilise les vrais noms de champs des modèles
+    """
+    try:
+        user = get_object_or_404(Utilisateur, id=user_id)
+        
+        # Informations de base
+        user_data = {
+            'id': user.id,
+            'email': user.email,
+            'first_name': getattr(user, 'first_name', ''),
+            'last_name': getattr(user, 'last_name', ''),
+            'role': getattr(user, 'role', 'INCONNU'),
+            'telephone': getattr(user, 'telephone', None),
+            'pays': str(user.pays) if user.pays else None,
+            'date_inscription': user.date_joined.isoformat() if user.date_joined else None,
+            'derniere_connexion': user.last_login.isoformat() if user.last_login else None,
+            'is_active': user.is_active,
+            'est_certifie': getattr(user, 'est_certifie', False),
+        }
+        
+        # ✅ PROFIL EXPERT - Utiliser les vrais champs
+        if user.role == 'EXPERT':
+            try:
+                profil = ProfilExpert.objects.get(utilisateur=user)
+                
+                # ✅ Récupérer les domaines sous forme de liste
+                domaines_list = []
+                if profil.domaines_competence:
+                    domaines_list = [d.strip() for d in profil.domaines_competence.split(',') if d.strip()]
+                
+                user_data['profil'] = {
+                    # ✅ Champs réels du modèle
+                    'domaines_competence': domaines_list,
+                    'domaines_competence_raw': profil.domaines_competence,
+                    'autres_competences': getattr(profil, 'autres_competences', None),
+                    'disponible': getattr(profil, 'disponible', False),
+                    'date_creation': profil.date_creation.isoformat() if getattr(profil, 'date_creation', None) else None,
+                    'date_mise_a_jour': profil.date_mise_a_jour.isoformat() if getattr(profil, 'date_mise_a_jour', None) else None,
+                    # ✅ CV - Utiliser cv_fichier
+                    'cv': None,
+                    'cv_url': None,
+                }
+                
+                # ✅ Vérifier si le CV existe
+                if hasattr(profil, 'cv_fichier') and profil.cv_fichier:
+                    try:
+                        cv_url = profil.cv_fichier.url
+                        user_data['profil']['cv'] = cv_url
+                        user_data['profil']['cv_url'] = request.build_absolute_uri(cv_url) if request else cv_url
+                        print(f"✅ CV trouvé pour expert {user.id}: {cv_url}")
+                    except Exception as e:
+                        print(f" Erreur accès CV: {e}")
+                else:
+                    print(f" Aucun CV pour l'expert {user.id}")
+                
+                # ✅ Profil complet ?
+                user_data['profil']['profil_complet'] = bool(
+                    profil.cv_fichier and profil.domaines_competence
+                )
+                
+            except ProfilExpert.DoesNotExist:
+                print(f" ProfilExpert n'existe pas pour l'utilisateur {user.id}")
+                user_data['profil'] = None
+                user_data['profil_message'] = 'Aucun profil expert renseigné'
+            except Exception as e:
+                print(f" Erreur récupération profil expert: {e}")
+                import traceback
+                traceback.print_exc()
+                user_data['profil'] = None
+                user_data['profil_message'] = f'Erreur chargement profil: {str(e)}'
+        
+        #  PROFIL BUREAU - Utiliser les vrais champs
+        elif user.role == 'BUREAU':
+            try:
+                #  Utiliser related_name='bureau_etude'
+                bureau = user.bureau_etude
+                
+                user_data['profil'] = {
+                    #  Champs réels du modèle
+                    'nom_structure': getattr(bureau, 'nom_structure', None),
+                    'pays': str(bureau.pays) if getattr(bureau, 'pays', None) else None,
+                    'adresse': getattr(bureau, 'adresse', None),
+                    'domaine_activite': getattr(bureau, 'domaine_activite', None),
+                    'email_contact': getattr(bureau, 'email_contact', None),
+                    'telephone': getattr(bureau, 'telephone', None),
+                    'site_web': getattr(bureau, 'site_web', None),
+                    'date_creation': bureau.date_creation.isoformat() if getattr(bureau, 'date_creation', None) else None,
+                    'date_mise_a_jour': bureau.date_mise_a_jour.isoformat() if getattr(bureau, 'date_mise_a_jour', None) else None,
+                }
+                
+                # ✅ Profil complet ?
+                user_data['profil']['profil_complet'] = bool(
+                    bureau.nom_structure and bureau.email_contact and bureau.telephone
+                )
+                
+            except BureauEtude.DoesNotExist:
+                print(f"⚠️ BureauEtude n'existe pas pour l'utilisateur {user.id}")
+                user_data['profil'] = None
+                user_data['profil_message'] = 'Aucun profil bureau renseigné'
+            except Exception as e:
+                print(f"❌ Erreur récupération profil bureau: {e}")
+                import traceback
+                traceback.print_exc()
+                user_data['profil'] = None
+                user_data['profil_message'] = f'Erreur chargement profil: {str(e)}'
+        
+        # ✅ Compter les activités
+        try:
+            from .models import SuggestionOffre
+            try:
+                suggestions_recues = SuggestionOffre.objects.filter(expert=user).count()
+                suggestions_consultees = SuggestionOffre.objects.filter(
+                    expert=user, est_consulte_par_expert=True
+                ).count()
+            except Exception:
+                try:
+                    suggestions_recues = SuggestionOffre.objects.filter(expert_utilisateur=user).count()
+                    suggestions_consultees = SuggestionOffre.objects.filter(
+                        expert_utilisateur=user, est_consulte_par_expert=True
+                    ).count()
+                except Exception:
+                    suggestions_recues = 0
+                    suggestions_consultees = 0
+            
+            user_data['activites'] = {
+                'suggestions_recues': suggestions_recues if user.role == 'EXPERT' else 0,
+                'suggestions_consultees': suggestions_consultees if user.role == 'EXPERT' else 0,
+            }
+        except Exception as e:
+            print(f"❌ Erreur comptage activités: {e}")
+            user_data['activites'] = {
+                'suggestions_recues': 0,
+                'suggestions_consultees': 0,
+            }
+        
+        # ✅ DEBUG : Afficher les données avant envoi
+        print(f"\n📤 Données envoyées pour user {user_id} ({user.role}):")
+        if user_data.get('profil'):
+            print(f"  - Profil complet: {user_data['profil'].get('profil_complet', False)}")
+            if user.role == 'EXPERT':
+                print(f"  - Domaines: {user_data['profil'].get('domaines_competence', [])}")
+                print(f"  - CV URL: {user_data['profil'].get('cv_url', 'Aucun')}")
+            elif user.role == 'BUREAU':
+                print(f"  - Structure: {user_data['profil'].get('nom_structure', 'N/A')}")
+                print(f"  - Email contact: {user_data['profil'].get('email_contact', 'N/A')}")
+        else:
+            print(f"  - Profil: {user_data.get('profil_message', 'Aucun')}")
+        print()
+        
+        return Response(user_data, status=status.HTTP_200_OK)
+    
+    except Exception as e:
+        print(f"❌ ERREUR CRITIQUE admin_user_details: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response(
+            {'error': f'Erreur lors de la récupération des détails: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def admin_list_experts_with_profiles(request):
+    """
+    Liste tous les experts avec leurs profils (ID du profil, pas de l'utilisateur)
+    """
+    try:
+        # Récupérer tous les profils experts
+        profils = ProfilExpert.objects.select_related('utilisateur').all()
+        
+        experts_data = []
+        for profil in profils:
+            experts_data.append({
+                'id': profil.id,  # ✅ ID du ProfilExpert (ce que le backend attend)
+                'user_id': profil.utilisateur.id,
+                'nom': f"{profil.utilisateur.first_name} {profil.utilisateur.last_name}".strip() or profil.utilisateur.email,
+                'email': profil.utilisateur.email,
+                'specialite': profil.domaines_competence,
+                'disponible': profil.disponible,
+                'profil_complet': profil.profil_complet()
+            })
+        
+        return Response(experts_data, status=status.HTTP_200_OK)
+    
+    except Exception as e:
+        print(f"❌ Erreur admin_list_experts_with_profiles: {e}")
+        return Response(
+            {'error': f'Erreur: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    
+from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
+from django.utils import timezone
+from .serializers import SuggestionOffreExpertSerializer, ReponseSuggestionSerializer
+
+
+class SuggestionExpertViewSet(viewsets.ViewSet):
+    """
+    API pour que l'expert puisse voir et répondre aux suggestions
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def list(self, request):
+        """Liste toutes les suggestions de l'expert connecté"""
+        try:
+            # Récupérer le profil expert de l'utilisateur connecté
+            profil_expert = ProfilExpert.objects.get(utilisateur=request.user)
+            
+            # Récupérer toutes les suggestions
+            suggestions = SuggestionOffre.objects.filter(
+                expert=profil_expert
+            ).select_related('offre').order_by('-date_suggestion')
+            
+            # Filtrer par statut si demandé
+            statut = request.query_params.get('statut')
+            if statut:
+                suggestions = suggestions.filter(statut_reponse=statut)
+            
+            serializer = SuggestionOffreExpertSerializer(suggestions, many=True)
+            
+            # Statistiques
+            stats = {
+                'total': suggestions.count(),
+                'en_attente': suggestions.filter(statut_reponse='EN_ATTENTE').count(),
+                'consultees': suggestions.filter(statut_reponse='CONSULTEE').count(),
+                'acceptees': suggestions.filter(statut_reponse='ACCEPTEE').count(),
+                'refusees': suggestions.filter(statut_reponse='REFUSEE').count(),
+            }
+            
+            return Response({
+                'suggestions': serializer.data,
+                'stats': stats
+            })
+            
+        except ProfilExpert.DoesNotExist:
+            return Response(
+                {'error': 'Profil expert non trouvé'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            print(f"❌ Erreur list suggestions: {e}")
+            return Response(
+                {'error': f'Erreur serveur: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def retrieve(self, request, pk=None):
+        """Détails d'une suggestion spécifique"""
+        try:
+            profil_expert = ProfilExpert.objects.get(utilisateur=request.user)
+            suggestion = SuggestionOffre.objects.get(
+                id=pk, 
+                expert=profil_expert
+            )
+            
+            serializer = SuggestionOffreExpertSerializer(suggestion)
+            return Response(serializer.data)
+            
+        except SuggestionOffre.DoesNotExist:
+            return Response(
+                {'error': 'Suggestion non trouvée'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except ProfilExpert.DoesNotExist:
+            return Response(
+                {'error': 'Profil expert non trouvé'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @action(detail=True, methods=['post'], url_path='repondre')
+    def repondre(self, request, pk=None):
+        """
+        Permet à l'expert de répondre à une suggestion
+        Statuts possibles : CONSULTEE, ACCEPTEE, REFUSEE
+        """
+        try:
+            profil_expert = ProfilExpert.objects.get(utilisateur=request.user)
+            suggestion = SuggestionOffre.objects.get(
+                id=pk, 
+                expert=profil_expert
+            )
+            
+            # Valider les données
+            serializer = ReponseSuggestionSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            # Mettre à jour la suggestion
+            suggestion.statut_reponse = serializer.validated_data['statut_reponse']
+            suggestion.date_reponse = timezone.now()
+            suggestion.commentaire_expert = serializer.validated_data.get('commentaire_expert', '')
+            
+            # Mettre à jour l'ancien champ pour compatibilité
+            if serializer.validated_data['statut_reponse'] == 'CONSULTEE':
+                suggestion.est_consulte_par_expert = True
+            
+            suggestion.save()
+            
+            # Créer une notification pour l'admin
+            try:
+                admin = Utilisateur.objects.filter(is_staff=True).first()
+                if admin:
+                    Notification.objects.create(
+                        destinataire=admin,
+                        offre_liee=suggestion.offre,
+                        objet=f"Expert a répondu à la suggestion",
+                        message=f"L'expert {profil_expert.utilisateur.email} a {suggestion.get_statut_reponse_display().lower()} la suggestion pour l'offre: {suggestion.offre.titre[:50]}"
+                    )
+            except Exception as e:
+                print(f"⚠️ Erreur notification: {e}")
+            
+            return Response({
+                'message': f'Suggestion {suggestion.get_statut_reponse_display().lower()} avec succès',
+                'suggestion': SuggestionOffreExpertSerializer(suggestion).data
+            })
+            
+        except SuggestionOffre.DoesNotExist:
+            return Response(
+                {'error': 'Suggestion non trouvée'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except ProfilExpert.DoesNotExist:
+            return Response(
+                {'error': 'Profil expert non trouvé'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            print(f"❌ Erreur repondre: {e}")
+            return Response(
+                {'error': f'Erreur serveur: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['post'], url_path='marquer-consultee')
+    def marquer_consultee(self, request, pk=None):
+        """Marquer rapidement une suggestion comme consultée"""
+        try:
+            profil_expert = ProfilExpert.objects.get(utilisateur=request.user)
+            suggestion = SuggestionOffre.objects.get(
+                id=pk, 
+                expert=profil_expert
+            )
+            
+            suggestion.est_consulte_par_expert = True
+            if suggestion.statut_reponse == 'EN_ATTENTE':
+                suggestion.statut_reponse = 'CONSULTEE'
+                suggestion.date_reponse = timezone.now()
+            
+            suggestion.save()
+            
+            return Response({
+                'message': 'Suggestion marquée comme consultée',
+                'suggestion': SuggestionOffreExpertSerializer(suggestion).data
+            })
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

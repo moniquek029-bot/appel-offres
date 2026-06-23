@@ -1,8 +1,5 @@
-# offres/scraping/parsers/generic_parser.py
-"""
-Parser générique qui fonctionne avec n'importe quel site
-✅ Utilise les nouveaux utilitaires de validation PDF
-"""
+# offres/scraping/parsers/generic_parser.py 
+
 import re
 import requests
 from bs4 import BeautifulSoup
@@ -16,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class GenericParser(BaseScraper):
-    """Parser générique adaptable à tout site"""
+    """Parser générique adaptable à tout site (PDF optionnel)"""
     
     def __init__(self, source_url: str, **kwargs):
         super().__init__(source_url, **kwargs)
@@ -61,6 +58,9 @@ class GenericParser(BaseScraper):
                 link_elem = container.select_one('a[href]')
                 url_source = normalize_url(link_elem.get('href'), self.base_url) if link_elem else None
                 
+                if not url_source:
+                    continue
+                
                 date_selectors = ['.date', '.deadline', '.closing', '.posted', 'time', '[datetime]']
                 date_cloture = date.today() + timedelta(days=30)
                 for sel in date_selectors:
@@ -79,20 +79,19 @@ class GenericParser(BaseScraper):
                     'date_publication': date.today() - timedelta(days=2),
                     'date_cloture': date_cloture,
                     'url_source': url_source,
-                    'url_tdr': None,  # Sera extrait plus tard
+                    'url_tdr': None,
                     'pays': self.pays_defaut,
                     'statut': 'Ouvert',
                     'mode_acquisition': 'AUTO',
                 }
                 
-                if titre and url_source:
-                    offres.append(offre)
+                offres.append(offre)
                     
             except Exception as e:
                 logger.debug(f"Erreur parsing: {e}")
                 continue
         
-        logger.info(f"✅ {len(offres)} offre(s) extraite(s) avec parser générique")
+        logger.info(f"✅ {len(offres)} offre(s) extraite(s)")
         return offres
     
     def _extract_organisme(self, container) -> str:
@@ -105,11 +104,15 @@ class GenericParser(BaseScraper):
         return "Organisme non spécifié"
     
     def parse_detail_page(self, soup: BeautifulSoup, base_url: str) -> dict | None:
-        """Extrait le PDF de la page détail - Version améliorée"""
-        pdf_url = extract_pdf_from_page(str(soup), base_url)
-        if pdf_url and is_valid_pdf_url(pdf_url):
-            return {'url_tdr': pdf_url}
-        return None
+        """Extrait le PDF de la page détail (optionnel)"""
+        try:
+            pdf_url = extract_pdf_from_page(str(soup), base_url)
+            if pdf_url:
+                return {'url_tdr': pdf_url}
+            return None
+        except Exception as e:
+            logger.debug(f"Erreur extraction PDF: {e}")
+            return None
     
     def run(self) -> list[dict]:
         """Exécute le scraping générique"""
@@ -122,7 +125,7 @@ class GenericParser(BaseScraper):
         
         offres = self.parse(soup)
         
-        # Essayer d'extraire les PDF pour chaque offre
+        # Essayer d'extraire les PDF pour chaque offre (optionnel)
         for offre in offres:
             if offre.get('url_source'):
                 try:
@@ -131,7 +134,7 @@ class GenericParser(BaseScraper):
                         pdf_data = self.parse_detail_page(detail_soup, self.base_url)
                         if pdf_data and pdf_data.get('url_tdr'):
                             offre['url_tdr'] = pdf_data['url_tdr']
-                            logger.info(f"📎 PDF extrait pour: {offre['titre'][:50]}...")
+                            logger.info(f" PDF trouvé pour: {offre['titre'][:50]}...")
                 except Exception as e:
                     logger.debug(f"Erreur extraction PDF: {e}")
         

@@ -1,47 +1,124 @@
 /* src/components/Navbar.css */
 
-/* Navbar plus compacte */
 .navbar {
-  min-height: 48px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  padding: 12px 0;
 }
 
-.navbar-brand {
-  font-size: 1.2rem;
+/* Logo circulaire */
+.logo-container {
+  position: relative;
 }
 
+.logo-circle {
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(135deg, #e94560, #0f3460);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(233, 69, 96, 0.3);
+  transition: transform 0.3s ease;
+}
+
+.logo-circle:hover {
+  transform: scale(1.05);
+}
+
+.logo-text {
+  color: white;
+  font-weight: bold;
+  font-size: 18px;
+  letter-spacing: 1px;
+}
+
+/* Nom de l'entreprise */
+.brand-name {
+  font-size: 1.3rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #ffffff, #e2e2e2);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.5px;
+}
+
+.brand-subtitle {
+  font-size: 0.7rem;
+  color: #e94560;
+  font-weight: 500;
+  letter-spacing: 1px;
+}
+
+/* Liens de navigation */
 .nav-link {
-  font-size: 0.9rem;
-  padding: 0.4rem 0.8rem !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  font-weight: 500;
+  padding: 8px 16px !important;
+  transition: all 0.3s ease;
+  border-radius: 25px;
+  margin: 0 2px;
 }
 
-/* Alignement horizontal des boutons */
-.navbar-nav {
-  gap: 0.25rem;
+.nav-link:hover {
+  color: rgb(214, 131, 23) !important;
+  background: rgba(233, 69, 96, 0.2);
+  transform: translateY(-2px);
 }
 
-@media (max-width: 991px) {
-  .navbar-nav {
-    gap: 0.5rem;
-    padding-top: 0.5rem;
-  }
-  
-  .navbar-collapse {
-    background: var(--bs-primary);
-    padding: 0.75rem;
-    border-radius: 8px;
-    margin-top: 0.5rem;
-  }
-  
-  .nav-link {
-    text-align: center;
-  }
-  
-  .btn-sm {
-    width: 100%;
-  }
+.nav-link.active {
+  background: linear-gradient(135deg, #e94560, #0f3460);
+  color: white !important;
 }
 
-/* Séparateur vertical */
-.navbar-nav .text-white-50 {
-  font-size: 0.8rem;
+/* Bouton d'inscription */
+.btn-primary {
+  background: linear-gradient(135deg, #e94560, #0f3460);
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(233, 69, 96, 0.4);
+}
+
+/* Dropdown menu */
+.dropdown-menu {
+  background: #1a1a2e;
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.dropdown-item {
+  color: #e2e2e2;
+  transition: all 0.2s ease;
+}
+
+.dropdown-item:hover {
+  background: rgba(233, 69, 96, 0.2);
+  color: rgb(229, 134, 9);
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+  .brand-name {
+    font-size: 1rem;
+  }
+  
+  .brand-subtitle {
+    font-size: 0.6rem;
+  }
+  
+  .logo-circle {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .logo-text {
+    font-size: 14px;
+  }
 }

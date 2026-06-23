@@ -14,7 +14,7 @@ const Newsletter = ({ variant = 'footer' }) => {
 
     try {
       await api.post('/newsletter/subscribe/', { email });
-      setStatus({ type: 'success', message: '✅ Inscription réussie !' });
+      setStatus({ type: 'success', message: ' Inscription réussie !' });
       setEmail('');
       setTimeout(() => setStatus({ type: '', message: '' }), 3000);
     } catch (err) {
@@ -96,7 +96,7 @@ const Newsletter = ({ variant = 'footer' }) => {
         </form>
 
         <p className="text-muted small text-center mt-3 mb-0">
-          ✉️ Une fois par semaine • Désabonnement facile
+           Une fois par semaine • Désabonnement facile
         </p>
       </div>
     </div>

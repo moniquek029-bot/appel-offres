@@ -4,8 +4,10 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import ErrorBoundary from './components/ErrorBoundary';  // ✅ Déjà importé
+import ErrorBoundary from './components/ErrorBoundary'; 
 
+import ForgotPassword from './pages/ForgotPassword';  
+import ResetPassword from './pages/ResetPassword';     
 // Pages principales
 import Home from './pages/Home';
 import JobDetail from './pages/JobDetail';
@@ -25,6 +27,7 @@ import BureauProfile from './pages/BureauProfile';
 import ExpertProfile from './pages/ExpertProfile';
 import ExpertCriteres from './pages/ExpertCriteres';
 import AdminDashboard from './pages/AdminDashboard';
+import ExpertSuggestions from './pages/ExpertSuggestions';
 
 // =============================================================================
 // COMPOSANT DE PROTECTION DE ROUTES
@@ -94,6 +97,11 @@ function App() {
                 <Route path="/offres/:id" element={<JobDetail />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/a-propos" element={<APropos />} />
+
+                <Route path="/expert/suggestions" element={<ProtectedRoute><ExpertSuggestions /></ProtectedRoute>} />
+
+                <Route path="/forgot-password" element={<ForgotPassword />} />      
+                <Route path="/reset-password/:token" element={<ResetPassword />} />
 
                 {/* Routes d'inscription */}
                 <Route path="/register" element={<ChooseRole />} />
@@ -172,6 +180,9 @@ function App() {
       </ErrorBoundary>
     </AuthProvider>
   );
+
+
+  
 }
 
 export default App;

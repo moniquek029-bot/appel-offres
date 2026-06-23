@@ -2,6 +2,9 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
+
+from django.contrib.auth.models import User
+
 from django.contrib.auth.password_validation import validate_password
 from .models import (
     SourceScraping, Utilisateur, AppelOffre, ProfilExpert, BureauEtude, 
@@ -166,45 +169,65 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 # =============================================================================
 # APPELS D'OFFRES
-# =============================================================================
-# offres/serializers.py - Modifier AppelOffreSerializer
 
 class AppelOffreSerializer(serializers.ModelSerializer):
-    source_nom = serializers.ReadOnlyField(source='source_origine.nom')
-    jours_restants = serializers.SerializerMethodField()
-    url_source = serializers.URLField(read_only=True)
-    url_tdr = serializers.SerializerMethodField()
-    fichier_pdf_url = serializers.SerializerMethodField()  # ✅ AJOUTER
-
+    """
+    Serializer pour AppelOffre
+    """
+    fichier_pdf_url = serializers.SerializerMethodField()
+    
     class Meta:
         model = AppelOffre
-        fields = (
-            'id', 'titre', 'organisme', 'description', 'pays', 
-            'date_publication', 'date_cloture', 
-            'url_source', 'url_tdr', 'fichier_pdf_url',  # ✅ AJOUTER fichier_pdf_url
-            'source_nom', 'jours_restants', 'statut', 'mode_acquisition'
-        )
-        read_only_fields = ('id', 'mode_acquisition')
-
-    def get_url_tdr(self, obj):
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            return obj.url_tdr
-        return None
+        fields = [
+            'id', 'titre', 'organisme', 'description', 'pays',
+            'date_publication', 'date_cloture', 'url_source',
+            'url_tdr', 'fichier_pdf', 'fichier_pdf_url',
+            'statut', 'mode_acquisition', 'source_origine',
+            'date_scraping', 'est_expire',
+        ]
+        read_only_fields = ['date_scraping', 'est_expire']
     
     def get_fichier_pdf_url(self, obj):
-        """Retourne l'URL du fichier PDF local si disponible"""
-        if obj.fichier_pdf and obj.fichier_pdf.url:
+        """Retourne l'URL absolue du fichier PDF uploadé"""
+        if obj.fichier_pdf:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.fichier_pdf.url)
             return obj.fichier_pdf.url
         return None
-
-    def get_jours_restants(self, obj):
-        from django.utils import timezone
-        if obj.date_cloture:
-            delta = obj.date_cloture - timezone.now().date()
-            return max(0, delta.days)
-        return None
-
+    
+    def validate_fichier_pdf(self, value):
+        """Validation du fichier PDF"""
+        if value:
+            # Vérifier l'extension
+            if not value.name.lower().endswith('.pdf'):
+                raise serializers.ValidationError(
+                    "Seuls les fichiers PDF sont acceptés. Extension trouvée: " + value.name.split('.')[-1]
+                )
+            
+            # Vérifier la taille (max 10 MB)
+            max_size = 10 * 1024 * 1024  # 10 MB
+            if value.size > max_size:
+                size_mb = value.size / (1024 * 1024)
+                raise serializers.ValidationError(
+                    f"Le fichier ne doit pas dépasser 10 MB. Taille actuelle: {size_mb:.2f} MB"
+                )
+        
+        return value
+    
+    def validate(self, data):
+        """Validation globale"""
+        # Au moins une source de PDF doit être fournie (optionnel mais recommandé)
+        # On ne force pas, car certaines offres peuvent ne pas avoir de PDF
+        
+        # Vérifier que date_cloture est après date_publication
+        if data.get('date_publication') and data.get('date_cloture'):
+            if data['date_cloture'] < data['date_publication']:
+                raise serializers.ValidationError({
+                    'date_cloture': "La date de clôture doit être après la date de publication"
+                })
+        
+        return data
 # =============================================================================
 # PROFIL EXPERT (avec domaines de compétence et CV)
 # =============================================================================
@@ -367,8 +390,6 @@ class NotificationSerializer(serializers.ModelSerializer):
         read_only_fields = ['destinataire', 'date_envoi']
 
 
-# offres/serializers.py - Ajouter
-
 
 # Ajoutez ce serializer pour les utilisateurs
 class UserSimpleSerializer(serializers.ModelSerializer):
@@ -530,10 +551,88 @@ class AdminStatistiquesSerializer(serializers.Serializer):
     suggestions_consultees = serializers.IntegerField()
 
 
-# offres/serializers.py - Ajoute cette classe
-# offres/serializers.py - Ajoute à la fin
+# offres/serializers.py
+
 class SourceScrapingSerializer(serializers.ModelSerializer):
     class Meta:
         model = SourceScraping
         fields = ['id', 'nom', 'url_racine', 'frequence_maj', 'est_actif', 'last_scraped', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'last_scraped', 'created_at', 'updated_at']
+        read_only_fields = ['last_scraped', 'created_at', 'updated_at']
+    
+    # ✅ Rendre frequence_maj optionnel avec valeur par défaut
+    frequence_maj = serializers.CharField(required=False, default='Toutes les 24h')
+    
+    # ✅ Rendre est_actif optionnel avec valeur par défaut
+    est_actif = serializers.BooleanField(required=False, default=True)
+    
+    def validate_url_racine(self, value):
+        """Valide et normalise l'URL"""
+        if not value:
+            raise serializers.ValidationError("L'URL est requise")
+        
+        # Ajouter https:// si manquant
+        if not value.startswith(('http://', 'https://')):
+            value = 'https://' + value
+        
+        return value.strip()
+    
+    def validate_nom(self, value):
+        """Valide que le nom n'est pas vide"""
+        if not value or len(str(value).strip()) == 0:
+            raise serializers.ValidationError("Le nom ne peut pas être vide")
+        return str(value).strip()
+    
+
+
+
+# offres/serializers.py (ajouter à la fin)
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    new_password = serializers.CharField(min_length=8, write_only=True)
+    confirm_password = serializers.CharField(min_length=8, write_only=True)
+    
+    def validate(self, data):
+        if data['new_password'] != data['confirm_password']:
+            raise serializers.ValidationError("Les mots de passe ne correspondent pas")
+        return data
+    
+
+class SuggestionOffreExpertSerializer(serializers.ModelSerializer):
+    """Serializer pour les suggestions vues par l'expert"""
+    offre_titre = serializers.CharField(source='offre.titre', read_only=True)
+    offre_organisme = serializers.CharField(source='offre.organisme', read_only=True)
+    offre_date_cloture = serializers.DateField(source='offre.date_cloture', read_only=True)
+    offre_pays = serializers.CharField(source='offre.pays', read_only=True)
+    offre_description = serializers.CharField(source='offre.description', read_only=True)
+    offre_url_source = serializers.URLField(source='offre.url_source', read_only=True)
+    
+    class Meta:
+        model = SuggestionOffre
+        fields = [
+            'id', 
+            'offre', 'offre_titre', 'offre_organisme', 
+            'offre_date_cloture', 'offre_pays', 'offre_description', 'offre_url_source',
+            'date_suggestion', 
+            'commentaire_admin',
+            'statut_reponse', 
+            'date_reponse',
+            'commentaire_expert',
+            'est_consulte_par_expert'
+        ]
+        read_only_fields = ['id', 'offre', 'date_suggestion', 'commentaire_admin']
+
+
+class ReponseSuggestionSerializer(serializers.Serializer):
+    """Serializer pour la réponse de l'expert"""
+    statut_reponse = serializers.ChoiceField(
+        choices=['CONSULTEE', 'ACCEPTEE', 'REFUSEE']
+    )
+    commentaire_expert = serializers.CharField(
+        required=False, 
+        allow_blank=True,
+        max_length=500
+    )

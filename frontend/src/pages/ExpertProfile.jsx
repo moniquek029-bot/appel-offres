@@ -131,11 +131,19 @@ const handleSubmit = async (e) => {
           <nav aria-label="breadcrumb">
             <ol className="breadcrumb">
               <li className="breadcrumb-item"><Link to="/expert/dashboard">Dashboard</Link></li>
-              <li className="breadcrumb-item active">Mon Profil</li>
+              <li className="breadcrumb-item active">
+                Mon Profil
+                </li>
             </ol>
           </nav>
-          <h2 className="mb-1">👤 Mon Profil Expert</h2>
-          <p className="text-muted">Complétez vos informations</p>
+          <h2 className="mb-1">
+            <i className="bi bi-person me-1"></i>
+            Mon Profil Expert
+          </h2>
+          <p className="text-muted">
+            <i className="bi bi-info-circle me-1"></i>
+            Complétez vos informations
+          </p>
         </div>
       </div>
 
@@ -147,34 +155,48 @@ const handleSubmit = async (e) => {
           <form onSubmit={handleSubmit} className="card border-0 shadow-sm">
             <div className="card-body p-4">
               
-              <h5 className="card-title mb-3">📞 Informations de contact</h5>
+              <h5 className="card-title mb-3">Informations de contact</h5>
               <div className="row g-3 mb-4">
                 <div className="col-md-6">
-                  <label className="form-label">Téléphone</label>
+                  <label className="form-label">
+                    <i className="bi bi-telephone me-1"></i>
+                    Téléphone
+                    </label>
                   <input type="tel" name="telephone" className="form-control" value={formData.telephone} onChange={handleChange} />
                 </div>
                 <div className="col-md-6">
-                  <label className="form-label">Pays</label>
+                  <label className="form-label">
+                    <i className="bi bi-geo-alt me-1"></i>
+                    Pays
+                    </label>
                   <select name="pays" className="form-select" value={formData.pays} onChange={handleChange}>
                     {countries.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
                   </select>
                 </div>
               </div>
 
-              <h5 className="card-title mb-3">Compétences</h5>
+              <h5 className="card-title mb-3">
+                <i className="bi bi-star me-1"></i>
+                Compétences
+              </h5>
               <div className="mb-3">
-                <label className="form-label">Domaines d'expertise</label>
+                <label className="form-label">
+                  <i className="bi bi-lightning me-1"></i>
+                  Domaines d'expertise
+                </label>
                 <textarea name="competences" className="form-control" rows="2" value={formData.competences} onChange={handleChange} placeholder="Ex: Développement web, Gestion de projet..." />
               </div>
               
               <div className="mb-3">
-                <label className="form-label">Expérience</label>
+                <label className="form-label">
+                  <i className="bi bi-clock me-1"></i>
+                  Expérience</label>
                 <textarea name="experience" className="form-control" rows="3" value={formData.experience} onChange={handleChange} placeholder="Décrivez votre parcours..." />
               </div>
 
-              <h5 className="card-title mb-3">📄 Curriculum Vitae</h5>
+              <h5 className="card-title mb-3">Curriculum Vitae</h5>
               <div className="mb-4">
-                <label className="form-label">CV (PDF ou DOC, max 5 Mo)</label>
+                {/*<label className="form-label">CV (PDF ou DOC, max 5 Mo)</label>*/}
                 <input type="file" className="form-control" accept=".pdf,.doc,.docx" onChange={handleFileChange} />
                 {cvPreview && (
                   <div className="mt-3 p-3 bg-light rounded">
@@ -190,7 +212,7 @@ const handleSubmit = async (e) => {
 
               <div className="d-flex gap-2 pt-3 border-top">
                 <button type="submit" className="btn btn-primary" disabled={saving}>
-                  {saving ? '⏳ Enregistrement...' : '💾 Enregistrer'}
+                  {saving ? 'Enregistrement...' : 'Enregistrer'}
                 </button>
                 <Link to="/expert/dashboard" className="btn btn-outline-secondary">Annuler</Link>
               </div>
@@ -201,9 +223,12 @@ const handleSubmit = async (e) => {
         <div className="col-lg-4">
           <div className="card border-0 shadow-sm">
             <div className="card-body">
-              <h5 className="card-title mb-3">Aperçu</h5>
+              <h5 className="card-title mb-3">
+                <i className="bi bi-person-badge me-1"></i>
+                Aperçu
+                </h5>
               <div className={`badge ${profile?.cv_fichier ? 'bg-success' : 'bg-warning text-dark'} mb-3`}>
-                {profile?.cv_fichier ? '✅ Profil Complet' : 'CV manquant'}
+                {profile?.cv_fichier ? 'Profil Complet' : 'CV manquant'}
               </div>
               {formData.competences && (
                 <div>

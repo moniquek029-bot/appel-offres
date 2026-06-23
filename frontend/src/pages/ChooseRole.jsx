@@ -1,102 +1,89 @@
-// src/pages/ChooseRole.jsx
+// frontend/src/pages/ChooseRole.jsx
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 const ChooseRole = () => {
-  const navigate = useNavigate();
-
   return (
-    <div className="container py-5">
-      <div className="row justify-content-center">
-        <div className="col-md-8 col-lg-7">
+    <div className="container d-flex justify-content-center align-items-center" style={{ minHeight: '80vh' }}>
+      <div className="card border-0 shadow-lg" style={{ width: '100%', maxWidth: '550px', borderRadius: '16px' }}>
+        <div className="card-body p-4 p-md-5">
           
-          {/* En-tête */}
+          {/* En-tête avec icône - Même style que login */}
           <div className="text-center mb-4">
-            <div className="bg-primary bg-opacity-10 rounded-circle d-inline-flex p-3 mb-2">
-              <span className="display-6"></span>
+            <div className="bg-primary bg-opacity-10 rounded-circle d-inline-flex p-3 mb-3">
+              <i className="bi bi-person-plus-fill fs-1 text-primary"></i>
             </div>
-            <h1 className="display-6 fw-bold text-primary">S'inscrire</h1>
-            <p className="text-muted mt-2">
-              Bénéficiez de tous les services de Marchés Online
-            </p>
+            <h2 className="h3 mb-2 fw-bold" style={{ color: '#1a1a2e' }}>S'inscrire</h2>
+            <p className="text-muted small mb-0">Bénéficiez de tous les services de Marchés Online</p>
           </div>
-          
-          {/* Cartes de choix */}
-          <div className="row g-4 mb-4">
-            
-            {/* Carte Expert */}
-            <div className="col-md-6">
-              <div 
-                className="card border-0 shadow-lg rounded-4 h-100 text-center p-4"
-                style={{ cursor: 'pointer', transition: 'transform 0.2s' }}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-                onClick={() => navigate('/register/expert')}
-              >
-                <div className="card-body">
-                  <div className="display-1 mb-3"></div>
-                  <h3 className="card-title fw-bold">Je suis un expert</h3>
-                  <p className="card-text text-muted mt-3">
-                    Consultant, freelance, expert indépendant<br />
-                    <span className="small">Je souhaite consulter les appels d'offres et postuler</span>
+
+          {/* Message d'information */}
+          <div className="alert alert-info bg-light border-0 text-center py-2 mb-4" style={{ borderRadius: '10px' }}>
+            <i className="bi bi-info-circle-fill text-primary me-2"></i>
+            <span className="small">Choisissez votre profil pour commencer</span>
+          </div>
+
+          {/* Carte Expert */}
+          <div className="card mb-3 border-0 shadow-sm" style={{ borderRadius: '12px', transition: 'all 0.2s ease' }}>
+            <div className="card-body p-3 p-md-4">
+              <div className="d-flex align-items-start">
+                <div className="bg-primary bg-opacity-10 rounded-circle p-2 me-3" style={{ width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <i className="bi bi-briefcase-fill fs-4 text-primary"></i>
+                </div>
+                <div className="flex-grow-1">
+                  <div className="d-flex justify-content-between align-items-center flex-wrap">
+                    <h5 className="mb-1 fw-bold" style={{ color: '#1a1a2e' }}>
+                      {/* <i className="bi bi-star-fill text-warning me-1" style={{ fontSize: '0.8rem' }}></i> */}
+                      Je suis un expert
+                    </h5>
+                    <Link to="/register/expert" className="btn btn-outline-primary btn-sm" style={{ borderRadius: '20px', padding: '5px 16px' }}>
+                      Choisir <i className="bi bi-arrow-right ms-1"></i>
+                    </Link>
+                  </div>
+                  <p className="text-muted small mb-0 mt-2">
+                    Consultant, freelance, expert indépendant.<br />
+                    Je souhaite consulter les appels d'offres et postuler.
                   </p>
-                  <button className="btn btn-outline-primary mt-3 px-4">
-                    Choisir cette option →
-                  </button>
                 </div>
               </div>
             </div>
-            
-            {/* Carte Bureau */}
-            <div className="col-md-6">
-              <div 
-                className="card border-0 shadow-lg rounded-4 h-100 text-center p-4"
-                style={{ cursor: 'pointer', transition: 'transform 0.2s' }}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-                onClick={() => navigate('/register/bureau')}
-              >
-                <div className="card-body">
-                  <div className="display-1 mb-3"></div>
-                  <h3 className="card-title fw-bold">Je suis un bureau</h3>
-                  <p className="card-text text-muted mt-3">
-                    Bureau d'étude, entreprise, institution<br />
-                    <span className="small">Je souhaite consulter des appels d'offres</span>
+          </div>
+
+          {/* Carte Bureau d'études */}
+          <div className="card mb-4 border-0 shadow-sm" style={{ borderRadius: '12px', transition: 'all 0.2s ease' }}>
+            <div className="card-body p-3 p-md-4">
+              <div className="d-flex align-items-start">
+                <div className="bg-primary bg-opacity-10 rounded-circle p-2 me-3" style={{ width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <i className="bi bi-building-fill fs-4 text-primary"></i>
+                </div>
+                <div className="flex-grow-1">
+                  <div className="d-flex justify-content-between align-items-center flex-wrap">
+                    <h5 className="mb-1 fw-bold" style={{ color: '#1a1a2e' }}>
+                      {/* <i className="bi bi-building-check text-success me-1"></i> */}
+                      Je suis un bureau d'études
+                    </h5>
+                    <Link to="/register/bureau" className="btn btn-outline-primary btn-sm" style={{ borderRadius: '20px', padding: '5px 16px' }}>
+                      Choisir <i className="bi bi-arrow-right ms-1"></i>
+                    </Link>
+                  </div>
+                  <p className="text-muted small mb-0 mt-2">
+                    Bureau d'étude, entreprise, institution.<br />
+                    Je souhaite consulter des appels d'offres.
                   </p>
-                  <button className="btn btn-outline-primary mt-3 px-4">
-                    Choisir cette option →
-                  </button>
                 </div>
               </div>
             </div>
           </div>
-          
-          {/* Lien connexion */}
-          <div className="text-center mt-4">
-            <p className="text-muted">
-              J'ai déjà un compte{' '}
-              <a href="/login" className="text-decoration-none fw-semibold text-primary">
-              Me connecter
-              </a>
+
+          {/* Lien vers connexion */}
+          <div className="text-center mt-2 pt-2 border-top">
+            <p className="small text-muted mb-0">
+              J'ai déjà un compte ?{' '}
+              <Link to="/login" className="text-primary fw-semibold text-decoration-none">
+                <i className="bi bi-box-arrow-in-right me-1"></i>
+            Se connecter
+              </Link>
             </p>
-          </div>
-          
-          {/* Avantages */}
-          <div className="card border-0 bg-light mt-4 rounded-4">
-            <div className="card-body p-4">
-              <h6 className="text-primary fw-bold mb-3">Ce que nous vous offrons</h6>
-              <div className="row">
-                <div className="col-md-4 mb-2">
-                  <small className="text-muted">✓ Accès centralisé à tous les appels d'offres</small>
-                </div>
-                <div className="col-md-4 mb-2">
-                  <small className="text-muted">✓ Alertes email personnalisées</small>
-                </div>
-                <div className="col-md-4 mb-2">
-                  <small className="text-muted">✓ Suivi de publication en temps réel</small>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>

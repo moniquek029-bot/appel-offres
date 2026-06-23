@@ -1,0 +1,59 @@
+DIAGNOSTIC DES SOURCES DE SCRAPING
+======================================================================
+
+✅ SUCCÈS Joffres.net
+   URL : https://www.joffres.net/les_appeloffre/filtre
+   HTML : 185815 caractères
+   Offres : 13
+
+❌ ÉCHEC Agetib.net
+   URL : https://www.agetib.net/appels-offres
+   HTML : 0 caractères
+   Offres : 0
+   Détails : HTTP 404
+
+❌ ÉCHEC GlobalTenders
+   URL : https://www.globaltenders.com/tenders
+   HTML : 0 caractères
+   Offres : 0
+   Détails : Timeout
+
+✅ SUCCÈS UNDP Procurement
+   URL : https://procurement-notices.undp.org/search.cfm?country=BF
+   HTML : 1771489 caractères
+   Offres : 19
+
+❌ ÉCHEC SONABEL Burkina
+   URL : http://www.sonabel.bf/index.php/nous-suivre/avis/appels-d-offres
+   HTML : 0 caractères
+   Offres : 0
+   Détails : HTTP 404
+
+✅ SUCCÈS UEMOA Appels d'offres
+   URL : https://www.uemoa.int/appel-d-offre
+   HTML : 79883 caractères
+   Offres : 3
+
+✅ SUCCÈS UNFPA Burkina Faso
+   URL : https://burkinafaso.unfpa.org/fr/call-for-submissions
+   HTML : 46355 caractères
+   Offres : 9
+
+⚠️ PARTIEL Veille des marchés public
+   URL : https://centraledesmarches.com/
+   HTML : 1895 caractères
+   Offres : 0
+   Détails : Pas de mots-clés d'offres, 0 offres extraites
+
+❌ ÉCHEC KLEKOON
+   URL : https://www.klekoon.com/
+   HTML : 0 caractères
+   Offres : 0
+   Détails : ('Connection aborted.', ConnectionResetError(10054
+
+❌ ÉCHEC j360
+   URL : https://www.j360.info/appels-d-offres/afrique/burkina-faso/
+   HTML : 0 caractères
+   Offres : 0
+   Détails : HTTP 202
+

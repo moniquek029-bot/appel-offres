@@ -5,7 +5,8 @@ import axios from 'axios';
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8000/api',
+
   headers: { 'Content-Type': 'application/json' },
   // ✅ Désactiver le cache Axios par défaut
   cache: 'no-store',
@@ -40,7 +41,7 @@ api.interceptors.request.use(
         _t: Date.now()  // ← Timestamp unique à chaque requête
       };
       // Log pour debug (à retirer en production si besoin)
-      // console.log(`🔄 GET ${config.url} avec anti-cache: _t=${config.params._t}`);
+      // console.log(`GET ${config.url} avec anti-cache: _t=${config.params._t}`);
     }
     
     return config;
@@ -65,8 +66,9 @@ api.interceptors.response.use(
         isRefreshing = true;
         
         try {
+          // ✅ URL CORRIGÉE : token/refresh/ au lieu de auth/token/refresh/
           const { data } = await axios.post(
-            `${API_BASE_URL}auth/token/refresh/`,
+            `${API_BASE_URL}token/refresh/`,
             { refresh: refreshToken }
           );
           
@@ -139,8 +141,6 @@ export const searchOffres = async ({
       resultsLength: response.data.results?.length,
       next: response.data.next,
       previous: response.data.previous,
-      // Log du paramètre anti-cache (pour debug)
-      // cached: response.headers['x-cache'] || 'fresh'
     });
     
     return {

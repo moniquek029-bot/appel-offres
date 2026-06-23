@@ -6,7 +6,8 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'plateforme_offres.settings')
 
 app = Celery('plateforme_offres')
 app.config_from_object('django.conf:settings', namespace='CELERY')
-
-# Découverte automatique des tâches dans les apps Django
 app.autodiscover_tasks()
 
+@app.task(bind=True)
+def debug_task(self):
+    print(f'Request: {self.request!r}')

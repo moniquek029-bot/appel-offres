@@ -1,15 +1,14 @@
 /* =============================================================================
-   INDEX.CSS - STYLES GLOBAUX DE L'APPLICATION
-   ============================================================================= */
-
-/* =============================================================================
-   1. VARIABLES CSS (Thème)
+   1. VARIABLES CSS (Thème EXPERTISE-ID)
    ============================================================================= */
 :root {
-  /* === COULEURS PRINCIPALES === */
-  --primary: #0d6efd;
-  --primary-dark: #0a58ca;
-  --primary-light: #e7f1ff;
+  /* === COULEURS PRINCIPALES EXPERTISE-ID === */
+  --primary: #1E3A8A;           /* Bleu corporate */
+  --primary-dark: #172554;      /* Bleu nuit */
+  --primary-light: #EFF6FF;     /* Bleu très clair */
+  --accent: #F59E0B;            /* Or pour les accents */
+  --accent-dark: #D97706;       /* Or foncé */
+  
   --secondary: #6c757d;
   --success: #198754;
   --success-light: #d1e7dd;
@@ -20,7 +19,7 @@
   --info: #0dcaf0;
   --info-light: #cff4fc;
   --light: #f8f9fa;
-  --dark: #212529;
+  --dark: #1a1a2e;
   --white: #ffffff;
   --gray-100: #f8f9fa;
   --gray-200: #e9ecef;
@@ -58,6 +57,7 @@
   --radius: 0.375rem;
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
   --radius-pill: 50rem;
   
   /* === TRANSITIONS === */
@@ -85,7 +85,7 @@ code {
 }
 
 /* =============================================================================
-   3. BOUTONS PERSONNALISÉS
+   3. BOUTONS PERSONNALISÉS - CORRIGÉS
    ============================================================================= */
 
 /* Bouton extra petit (pour tableaux) */
@@ -145,6 +145,79 @@ code {
   padding: 0.25rem 0.75rem;
   font-size: var(--font-sm);
   border-radius: var(--radius);
+}
+
+/* ✅ CORRECTION : BOUTON PRIMAIRE AVEC GRADIENT BLEU → OR */
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%) !important;
+  border: none !important;
+  color: var(--white) !important;
+  transition: all var(--transition);
+  box-shadow: 0 2px 8px rgba(30, 58, 138, 0.15);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--accent-dark) 100%) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary:disabled {
+  background: linear-gradient(135deg, var(--gray-400) 0%, var(--gray-500) 100%) !important;
+  opacity: 0.65;
+}
+
+.btn-outline-primary {
+  color: var(--primary) !important;
+  border: 1px solid var(--primary) !important;
+  background: transparent !important;
+  transition: all var(--transition);
+}
+
+.btn-outline-primary:hover {
+  background: linear-gradient(135deg, var(--primary), var(--accent)) !important;
+  color: var(--white) !important;
+  transform: translateY(-2px);
+  border-color: transparent !important;
+}
+
+.btn-success {
+  background: linear-gradient(135deg, #1036c1, #19ec2e) !important;
+  border: none !important;
+  transition: all var(--transition);
+}
+
+.btn-success:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+/* ✅ CORRECTION : BOUTON WARNING */
+.btn-warning {
+  background: var(--accent) !important;
+  border: none !important;
+  color: var(--primary-dark) !important;
+  font-weight: 600;
+}
+
+.btn-warning:hover {
+  background: var(--accent-dark) !important;
+  transform: translateY(-2px);
+}
+
+/* ✅ CORRECTION : BOUTON INFO */
+.btn-info {
+  background: linear-gradient(135deg, #0dcaf0, #0aa5c5) !important;
+  border: none !important;
+}
+
+.btn-info:hover {
+  transform: translateY(-2px);
 }
 
 /* =============================================================================
@@ -225,6 +298,13 @@ code {
   color: var(--gray-700);
 }
 
+/* Focus des inputs */
+.form-control:focus, .form-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 0.2rem rgba(30, 58, 138, 0.25);
+  outline: none;
+}
+
 /* =============================================================================
    7. MODALS
    ============================================================================= */
@@ -285,14 +365,73 @@ code {
   border-radius: var(--radius-pill);
 }
 
+/* Badge primaire */
+.badge-primary {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+}
+
 /* =============================================================================
-   10. PAGINATION
+   10. PAGINATION - STYLE EXPERTISE-ID
    ============================================================================= */
 
-/* Pagination compacte */
-.pagination-compact .page-link {
-  padding: 0.25rem 0.5rem;
-  font-size: var(--font-sm);
+/* Conteneur de pagination */
+.pagination {
+  gap: 4px;
+}
+
+/* Liens de pagination par défaut */
+.page-link {
+  color: var(--primary) !important;
+  background-color: var(--white) !important;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: 25px !important;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+/* Survole des liens de pagination */
+.page-link:hover {
+  background-color: var(--primary-light) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary-dark) !important;
+  transform: translateY(-2px);
+}
+
+/* Page active (celle sur laquelle on est) */
+.page-item.active .page-link {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%) !important;
+  color: var(--white) !important;
+  border-color: transparent !important;
+  box-shadow: 0 2px 8px rgba(30, 58, 138, 0.3);
+}
+
+/* Désactivé (Précédent/Suivant quand on est à la première/dernière page) */
+.page-item.disabled .page-link {
+  color: var(--gray-500) !important;
+  background-color: var(--gray-100) !important;
+  border-color: var(--gray-300) !important;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Points de suspension */
+.page-item.disabled .page-link {
+  color: var(--gray-600) !important;
+}
+
+/* Boutons Précédent/Suivant */
+.pagination .page-link:first-child,
+.pagination .page-link:last-child {
+  font-weight: 500;
+}
+
+/* Responsive pagination sur mobile */
+@media (max-width: 576px) {
+  .page-link {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
 }
 
 /* =============================================================================
@@ -328,9 +467,17 @@ code {
   max-width: 300px;
 }
 
-/* Texte maintenantrap */
+/* Texte maintenant rap */
 .text-nowrap {
   white-space: nowrap;
+}
+
+/* Texte avec dégradé */
+.text-gradient {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 /* =============================================================================
@@ -407,4 +554,76 @@ code {
 
 .loading-pulse {
   animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Animation de glissement */
+@keyframes slideIn {
+  from {
+    transform: translateX(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* =============================================================================
+   14. SCROLLBARS PERSONNALISÉES POUR LES FILTRES
+   ============================================================================= */
+
+/* Scrollbar principale pour la section filtres */
+.filters-scroll-container {
+  scrollbar-width: thin;
+  scrollbar-color: var(--primary) #f1f1f1;
+}
+
+.filters-scroll-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.filters-scroll-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.filters-scroll-container::-webkit-scrollbar-thumb {
+  background: var(--primary);
+  border-radius: 10px;
+}
+
+.filters-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-dark);
+}
+
+/* Scrollbar pour la section Structure */
+.structure-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-400) transparent;
+}
+
+.structure-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.structure-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.structure-scroll::-webkit-scrollbar-thumb {
+  background: var(--gray-400);
+  border-radius: 4px;
+}
+
+.structure-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-600);
+}
+
+/* Smooth scroll pour tous les éléments */
+html {
+  scroll-behavior: smooth;
 }

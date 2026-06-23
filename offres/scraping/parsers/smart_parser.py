@@ -1,121 +1,203 @@
-"""
-SmartParser - Parser universel qui fonctionne sur n'importe quel site
-✅ NE CASSE RIEN - Ajoute simplement une nouvelle fonctionnalité
-✅ Fonctionne pour tous les sites ajoutés via l'admin
-"""
+# offres/scraping/parsers/smart_parser.py
+# SmartParser Ultra-Intelligent - Fonctionne avec N'IMPORTE QUEL site
 
 import re
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-from datetime import date, timedelta
 import logging
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+from datetime import date, timedelta
 
 from offres.scraping.base import BaseScraper
-from offres.scraping.utils import clean_text, normalize_url
+from offres.scraping.utils import clean_text, normalize_url, parse_french_date, detecter_pays
 
 logger = logging.getLogger(__name__)
 
 
 class SmartParser(BaseScraper):
     """
-    Parser intelligent qui s'adapte à n'importe quel site
-    - Détecte automatiquement les offres
-    - Extrait les PDF de manière générique
-    - Fonctionne sans configuration préalable
-    - Compatible avec tous les sites ajoutés via l'admin
+    Parser ultra-intelligent et adaptatif.
+    Fonctionne avec N'IMPORTE QUEL site d'appels d'offres.
+    Détecte automatiquement : pays, PDF/TDR, dates, montants.
     """
+    
+    # Mots-clés pour détecter les documents
+    MOTS_CLES_DOCUMENTS = [
+        'tdr', 'pdf', 'document', 'annexe', 'cahier', 'dossier',
+        'tender', 'dossier de consultation', 'règlement', 'spécification',
+        'termes de référence', 'terms of reference', 'bidding document',
+        'avis', 'manifestation', 'dao', 'dce', 'download', 'télécharger'
+    ]
+    
+    # Extensions de fichiers
+    EXTENSIONS_DOCUMENTS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.zip', '.rar']
+    
+    # Mots-clés pour identifier les offres
+    MOTS_CLES_OFFRES = [
+        'appel', 'offre', 'tender', 'consultation', 'avis', 'marché',
+        'recrutement', 'bidding', 'procurement', 'rfp', 'rfq', 'ito',
+        'projet', 'programme', 'subvention', 'grant', 'contrat'
+    ]
     
     def __init__(self, source_url: str, **kwargs):
         super().__init__(source_url, **kwargs)
-        self.offres_trouvees = []
+        self.base_domain = urlparse(source_url).netloc
     
     def parse(self, soup: BeautifulSoup) -> list[dict]:
-        """Parse intelligemment n'importe quelle page"""
+        """Analyse la structure de la page pour en extraire des offres."""
         offres = []
-        
-        # Mots-clés pour identifier une offre
-        mots_cles_offre = [
-            'appel', 'offre', 'tender', 'consultation', 'recrutement',
-            'avis', 'demande', 'proposition', 'proposal', 'notice',
-            'marché', 'marche', 'prestation', 'fourniture', 'travaux',
-            'service', 'pre-qualification', 'prequalification'
-        ]
-        
-        # 1. Chercher les conteneurs d'offres
         conteneurs = self._trouver_conteneurs(soup)
+        
+        logger.info(f"🔍 SmartParser: {len(conteneurs)} conteneurs potentiels détectés")
         
         for conteneur in conteneurs:
             try:
-                # Extraire le titre
+                # 1. Extraire le titre
                 titre = self._extraire_titre(conteneur)
                 if not titre or len(titre) < 15:
                     continue
                 
-                # Extraire le lien
+                # 2. Vérifier que c'est une offre
+                if not self._est_une_offre(titre):
+                    continue
+                
+                # 3. Extraire le lien
                 url_source = self._extraire_lien(conteneur)
                 if not url_source:
                     continue
                 
-                # Extraire l'organisme
-                organisme = self._extraire_organisme(conteneur) or self.source_url.split('//')[1].split('/')[0]
+                # 4. Organisme
+                organisme = self._extraire_organisme(conteneur) or self.base_domain
                 
-                # Extraire la date de clôture
+                # 5. Date de clôture
                 date_cloture = self._extraire_date(conteneur)
+                
+                # 6. Description
+                description = self._extraire_description(conteneur)
+                
+                # 7. 🎯 DÉTECTION AUTOMATIQUE DU PAYS
+                pays = self._detecter_pays(titre + ' ' + description)
+                
+                # 8. Montant (optionnel)
+                montant = self._extraire_montant(conteneur.get_text())
                 
                 offre = {
                     'titre': clean_text(titre)[:300],
                     'organisme': clean_text(organisme)[:200],
-                    'description': self._extraire_description(conteneur),
-                    'date_publication': date.today() - timedelta(days=3),
-                    'date_cloture': date_cloture or (date.today() + timedelta(days=30)),
+                    'description': description[:500],
+                    'date_publication': date.today(),
+                    'date_cloture': date_cloture,
                     'url_source': url_source,
-                    'url_tdr': None,
-                    'pays': self.pays_defaut,
+                    'url_tdr': None,  # Sera rempli dans run()
+                    'pays': pays,  # ← PAYS DÉTECTÉ AUTOMATIQUEMENT
                     'statut': 'Ouvert',
                     'mode_acquisition': 'AUTO',
                 }
                 
+                # Ajouter le montant s'il existe
+                if montant:
+                    offre['description'] += f"\n\n💰 Montant : {montant}"
+                
                 offres.append(offre)
                 
             except Exception as e:
-                logger.debug(f"Erreur extraction offre: {e}")
+                logger.debug(f"⚠️ Erreur parsing conteneur: {e}")
                 continue
         
-        logger.info(f"✅ SmartParser: {len(offres)} offre(s) extraite(s) pour {self.source_url}")
-        return offres[:30]  # Limiter à 30 offres par source
+        logger.info(f"✅ SmartParser: {len(offres)} offre(s) extraite(s)")
+        return offres[:50]
+    
+    def _est_une_offre(self, texte: str) -> bool:
+        """Vérifie si le texte correspond à une offre."""
+        texte_lower = texte.lower()
+        score = sum(1 for mot in self.MOTS_CLES_OFFRES if mot in texte_lower)
+        return score > 0 or len(texte) > 30
+    
+    def _detecter_pays(self, texte: str) -> str:
+        """🎯 DÉTECTION AUTOMATIQUE DU PAYS depuis le texte"""
+        # Utiliser la fonction utilitaire si disponible
+        try:
+            return detecter_pays(texte, self.pays_defaut)
+        except:
+            pass
+        
+        # Fallback : détection manuelle
+        pays_mapping = {
+            'burkina': 'BF', 'bf': 'BF', 'ouagadougou': 'BF',
+            'sénégal': 'SN', 'senegal': 'SN', 'dakar': 'SN',
+            'côte d\'ivoire': 'CI', 'ci': 'CI', 'abidjan': 'CI',
+            'mali': 'ML', 'bamako': 'ML',
+            'niger': 'NE', 'niamey': 'NE',
+            'togo': 'TG', 'lomé': 'TG', 'lome': 'TG',
+            'bénin': 'BJ', 'benin': 'BJ', 'cotonou': 'BJ',
+            'guinée': 'GN', 'conakry': 'GN',
+            'cameroun': 'CM', 'yaoundé': 'CM',
+            'rdc': 'CD', 'congo': 'CD', 'kinshasa': 'CD',
+            'tchad': 'TD', 'ndjamena': 'TD',
+            'gabon': 'GA', 'libreville': 'GA',
+            'france': 'FR', 'paris': 'FR',
+            'belgique': 'BE', 'bruxelles': 'BE',
+            'canada': 'CA', 'ottawa': 'CA',
+            'états-unis': 'US', 'usa': 'US', 'washington': 'US',
+        }
+        
+        texte_lower = texte.lower()
+        for mot, code in pays_mapping.items():
+            if mot in texte_lower:
+                return code
+        
+        return self.pays_defaut
     
     def _trouver_conteneurs(self, soup: BeautifulSoup) -> list:
-        """Trouve les conteneurs d'offres de manière générique"""
+        """Identifie les blocs répétitifs."""
         conteneurs = []
         
         # Sélecteurs CSS courants
         selecteurs = [
-            'div.offre', 'div.offer', 'div.tender', 'article', 
-            'div.item', 'div.post', 'div.job', 'div.listing-item',
-            'div.card', 'div.ao-item', 'div.appel-offre',
-            'tr', 'li', '.views-row', '.node'
+            'div.offre', 'div.offer', 'div.tender', 'div.appel-offre',
+            'div.ao-item', 'div.listing-item', 'div.job-item',
+            'article', 'div.item', 'div.post', 'div.card',
+            '.views-row', '.node', '.result-item', '.tender-item',
+            'li.list-group-item', 'div.row-item', 'div.procurement-item',
+            'table tbody tr', 'div.search-result', 'div.bid-item'
         ]
         
         for selecteur in selecteurs:
             trouves = soup.select(selecteur)
-            if len(trouves) > 2:
-                conteneurs = trouves
-                logger.debug(f"Conteneurs trouvés avec: {selecteur} ({len(conteneurs)})")
-                break
+            if len(trouves) >= 2:
+                return trouves
         
-        if not conteneurs:
-            for link in soup.find_all('a', href=True):
-                if len(link.get_text(strip=True)) > 30:
-                    parent = link.find_parent(['div', 'article', 'li', 'tr'])
-                    if parent and parent not in conteneurs:
-                        conteneurs.append(parent)
+        # Détection heuristique
+        divs = soup.find_all(['div', 'article', 'section'], recursive=True)
+        groupes = {}
+        for div in divs:
+            classes = ' '.join(div.get('class', []))
+            if classes:
+                if classes not in groupes:
+                    groupes[classes] = []
+                groupes[classes].append(div)
+        
+        if groupes:
+            meilleur_groupe = max(groupes.values(), key=len)
+            if len(meilleur_groupe) >= 3:
+                return meilleur_groupe
+        
+        # Fallback sur les liens longs
+        for link in soup.find_all('a', href=True):
+            texte = link.get_text(strip=True)
+            if len(texte) > 35 and self._est_une_offre(texte):
+                parent = link.find_parent(['div', 'article', 'li', 'tr', 'section'])
+                if parent and parent not in conteneurs:
+                    conteneurs.append(parent)
         
         return conteneurs
     
     def _extraire_titre(self, conteneur) -> str:
-        """Extrait le titre de l'offre"""
-        selecteurs_titre = ['h1', 'h2', 'h3', 'h4', 'h5', '.title', '.titre', '.name', '.offer-title']
+        """Extrait le titre."""
+        selecteurs_titre = [
+            'h1', 'h2', 'h3', 'h4', 'h5',
+            '.title', '.titre', '.offer-title', '.tender-title',
+            '.name', '.heading', 'a.title', 'strong.title'
+        ]
         
         for sel in selecteurs_titre:
             elem = conteneur.select_one(sel)
@@ -124,150 +206,182 @@ class SmartParser(BaseScraper):
                 if len(texte) > 10:
                     return texte
         
-        for link in conteneur.find_all('a', href=True):
-            texte = link.get_text(strip=True)
+        # Fallback : lien le plus long
+        liens = conteneur.find_all('a', href=True)
+        if liens:
+            liens_tries = sorted(liens, key=lambda x: len(x.get_text(strip=True)), reverse=True)
+            texte = liens_tries[0].get_text(strip=True)
             if len(texte) > 15:
                 return texte
         
         return conteneur.get_text(strip=True)[:200]
     
     def _extraire_lien(self, conteneur) -> str | None:
-        """Extrait l'URL de l'offre"""
-        for link in conteneur.find_all('a', href=True):
-            href = link.get('href', '')
-            if href and not href.startswith('#') and not href.startswith('javascript'):
-                if href.startswith('/'):
+        """Trouve l'URL vers la fiche descriptive."""
+        liens = conteneur.find_all('a', href=True)
+        
+        # Stratégie 1 : Lien avec mot-clé
+        for link in liens:
+            href = link.get('href', '').strip()
+            texte = link.get_text().lower()
+            
+            if href and not href.startswith('#') and not href.startswith('javascript:'):
+                if any(kw in texte for kw in self.MOTS_CLES_OFFRES):
                     return urljoin(self.base_url, href)
-                if href.startswith('http'):
-                    return href
+        
+        # Stratégie 2 : Premier lien valide
+        for link in liens:
+            href = link.get('href', '').strip()
+            if href and not href.startswith('#') and not href.startswith('javascript:'):
+                if not any(href.lower().endswith(ext) for ext in self.EXTENSIONS_DOCUMENTS):
+                    return urljoin(self.base_url, href)
+        
         return None
     
     def _extraire_organisme(self, conteneur) -> str | None:
-        """Extrait le nom de l'organisme"""
-        selecteurs_org = ['.company', '.organization', '.buyer', '.author', '.client', '.publisher']
+        """Extrait le nom de l'organisme."""
+        selecteurs_org = [
+            '.company', '.organization', '.buyer', '.author',
+            '.client', '.publisher', '.entity', '.institution'
+        ]
         
         for sel in selecteurs_org:
             elem = conteneur.select_one(sel)
-            if elem:
-                texte = elem.get_text(strip=True)
-                if len(texte) > 3:
-                    return texte
-        
-        for elem in conteneur.find_all(['span', 'div'], class_=True):
-            texte = elem.get_text(strip=True)
-            if len(texte) > 5 and len(texte) < 100:
-                if any(mot in texte.lower() for mot in ['ministère', 'agence', 'société', 'entreprise', 'institut']):
-                    return texte
+            if elem and len(elem.get_text(strip=True)) > 3:
+                return elem.get_text(strip=True)
         
         return None
     
-    def _extraire_date(self, conteneur) -> date | None:
-        """Extrait la date de clôture"""
-        selecteurs_date = ['.date', '.deadline', '.closing', '.cloture', '.end-date', 'time']
+    def _extraire_date(self, conteneur) -> date:
+        """Extrait la date de clôture."""
+        selecteurs_date = [
+            '.date', '.deadline', '.closing', '.cloture', '.end-date',
+            'time', '.date-cloture', '.limit-date'
+        ]
         
         for sel in selecteurs_date:
             elem = conteneur.select_one(sel)
             if elem:
-                texte = elem.get_text(strip=True)
-                date_parsee = self._parser_date(texte)
-                if date_parsee:
-                    return date_parsee
+                if elem.get('datetime'):
+                    return parse_french_date(elem.get('datetime'))
+                return parse_french_date(elem.get_text(strip=True))
         
-        texte = conteneur.get_text()
+        # Fallback : recherche dans le texte
+        return parse_french_date(conteneur.get_text())
+    
+    def _extraire_description(self, conteneur) -> str:
+        """Extrait la description."""
+        paragraphes = conteneur.find_all('p')
+        if paragraphes:
+            texte = ' '.join(p.get_text(strip=True) for p in paragraphes[:3])
+            if len(texte) > 50:
+                return clean_text(texte)[:500]
+        
+        return clean_text(conteneur.get_text())[:500]
+    
+    def _extraire_montant(self, texte: str) -> str | None:
+        """Extrait le montant si présent."""
         patterns = [
-            r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
-            r'(\d{4}-\d{2}-\d{2})',
-            r'clôture\s*:?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
-            r'deadline\s*:?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            r'(?:montant|budget|subvention|financement)\s*:\s*([^\n\.]+)',
+            r'(\d+[\s\d.,]*\s*(?:FCFA|EUR|USD|XOF|€|\$))',
         ]
         
         for pattern in patterns:
             match = re.search(pattern, texte, re.IGNORECASE)
             if match:
-                return self._parser_date(match.group(1))
+                return clean_text(match.group(1))
         
         return None
     
-    def _parser_date(self, date_str: str) -> date | None:
-        """Parse une date dans différents formats"""
-        from datetime import datetime
+    def _trouver_pdf_dans_page(self, soup: BeautifulSoup, base_url: str) -> str | None:
+        """🎯 DÉTECTION AUTOMATIQUE DES PDF/TDR"""
+        # Stratégie 1 : Liens directs vers PDF
+        for link in soup.find_all('a', href=True):
+            href = link.get('href', '').strip()
+            
+            if href.lower().endswith('.pdf'):
+                full_url = urljoin(base_url, href)
+                if not self._est_pdf_generique(href):
+                    return full_url
         
-        formats = [
-            '%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d',
-            '%d/%m/%y', '%d-%m-%y',
-            '%d %B %Y', '%d %b %Y'
+        # Stratégie 2 : Liens avec mots-clés
+        for link in soup.find_all('a', href=True):
+            href = link.get('href', '').strip()
+            texte = link.get_text(strip=True).lower()
+            
+            if not href or href.startswith('#') or href.startswith('javascript:'):
+                continue
+            
+            texte_match = any(mot in texte for mot in self.MOTS_CLES_DOCUMENTS)
+            url_match = any(mot in href.lower() for mot in self.MOTS_CLES_DOCUMENTS)
+            ext_match = any(href.lower().endswith(ext) for ext in self.EXTENSIONS_DOCUMENTS)
+            
+            if texte_match or url_match or ext_match:
+                if not self._est_lien_generique(href):
+                    return urljoin(base_url, href)
+        
+        # Stratégie 3 : Boutons de téléchargement
+        selecteurs_boutons = [
+            'a.download', 'a.btn-download', '.download-link',
+            'a[href*="download"]', 'a[href*="telecharger"]',
+            '.attachment a', '.document-link'
         ]
         
-        for fmt in formats:
-            try:
-                return datetime.strptime(date_str.strip(), fmt).date()
-            except ValueError:
-                continue
+        for selecteur in selecteurs_boutons:
+            elem = soup.select_one(selecteur)
+            if elem:
+                href = elem.get('href')
+                if href:
+                    return urljoin(base_url, href)
         
         return None
     
-    def _extraire_description(self, conteneur) -> str:
-        """Extrait la description de l'offre"""
-        paragraphes = conteneur.find_all('p')
-        if paragraphes:
-            return clean_text(' '.join(p.text for p in paragraphes[:3]))[:500]
-        
-        return clean_text(conteneur.get_text())[:500]
+    def _est_pdf_generique(self, url: str) -> bool:
+        """Vérifie si le PDF est générique."""
+        url_lower = url.lower()
+        mots_generiques = ['logo', 'favicon', 'icon', 'banner', 'header', 'footer']
+        return any(mot in url_lower for mot in mots_generiques)
     
-    def parse_detail_page(self, soup: BeautifulSoup, base_url: str) -> dict | None:
-        """Extrait le PDF de la page détail - UNIVERSEL"""
-        pdf_url = None
-        
-        # 1. Chercher les liens PDF directs
-        for link in soup.find_all('a', href=True):
-            href = link['href']
-            if href.lower().endswith('.pdf'):
-                pdf_url = normalize_url(href, base_url)
-                if pdf_url:
-                    return {'url_tdr': pdf_url}
-        
-        # 2. Chercher les liens contenant des mots-clés
-        mots_cles = ['pdf', 'tdr', 'download', 'telecharger', 'document', 'cahier', 'fichier']
-        for link in soup.find_all('a', href=True):
-            text = link.get_text().lower()
-            href = link['href']
-            if any(kw in text for kw in mots_cles):
-                if '.pdf' in href.lower():
-                    pdf_url = normalize_url(href, base_url)
-                    if pdf_url:
-                        return {'url_tdr': pdf_url}
-        
-        # 3. Chercher dans les iframes
-        for iframe in soup.find_all('iframe', src=True):
-            src = iframe['src']
-            if '.pdf' in src.lower():
-                pdf_url = normalize_url(src, base_url)
-                return {'url_tdr': pdf_url}
-        
-        return None
+    def _est_lien_generique(self, url: str) -> bool:
+        """Vérifie si le lien est générique."""
+        url_lower = url.lower()
+        mots_generiques = [
+            'accueil', 'home', 'contact', 'about', 'login', 'register',
+            'signup', 'privacy', 'terms', 'faq', 'help', 'search'
+        ]
+        return any(mot in url_lower for mot in mots_generiques)
     
     def run(self) -> list[dict]:
-        """Exécute le scraping intelligent"""
+        """Exécute le scraping avec détection automatique des PDF."""
         logger.info(f"🕷️ SmartParser scraping: {self.source_url}")
         
         try:
-            soup = self.fetch_and_parse()
+            # 1. Récupérer la page principale
+            soup = self.fetch_and_parse(use_js=False)
             if not soup:
                 return []
             
+            # 2. Extraire les offres
             offres = self.parse(soup)
             
+            # 3. Pour chaque offre, chercher le PDF/TDR
             for offre in offres:
                 if offre.get('url_source'):
                     try:
-                        detail_soup = self.fetch_page(offre['url_source'])
+                        import time
+                        time.sleep(0.5)
+                        
+                        # Récupérer la page de détail
+                        detail_soup = self.fetch_page(offre['url_source'], use_js=False)
+                        
                         if detail_soup:
-                            pdf_data = self.parse_detail_page(detail_soup, self.base_url)
-                            if pdf_data and pdf_data.get('url_tdr'):
-                                offre['url_tdr'] = pdf_data['url_tdr']
-                                logger.info(f"📎 PDF trouvé pour: {offre['titre'][:50]}...")
+                            # 🎯 DÉTECTION AUTOMATIQUE DU PDF
+                            pdf_url = self._trouver_pdf_dans_page(detail_soup, offre['url_source'])
+                            if pdf_url:
+                                offre['url_tdr'] = pdf_url
+                                logger.info(f" PDF trouvé: {offre['titre'][:50]}")
                     except Exception as e:
-                        logger.debug(f"Erreur extraction PDF: {e}")
+                        logger.debug(f" Erreur inspection détail: {e}")
             
             return offres
             
