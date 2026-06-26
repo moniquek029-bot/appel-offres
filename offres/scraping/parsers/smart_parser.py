@@ -6,6 +6,7 @@ import random
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from datetime import date
+from offres.scraping.site_validator import SiteValidator, is_valid_offer_title, is_rejected_content
 
 from offres.scraping.base import BaseScraper
 from offres.scraping.utils import clean_text, normalize_url, parse_french_date, detecter_pays
@@ -279,54 +280,97 @@ class SmartParser(BaseScraper):
         
         return None
     
-    def run(self) -> list[dict]:
-        """Exécute le scraping complet"""
-        logger.info(f" SmartParser: {self.source_url}")
-        logger.info(f" Mode JS: {' Selenium' if self.use_js else '❌ Désactivé'}")
+    # Dans offres/scraping/parsers/smart_parser.py
+
+# Ajouter en haut du fichier :
+
+# Modifier la méthode run() :
+def run(self) -> list[dict]:
+    """Exécute le scraping complet avec validation du site"""
+    logger.info(f"🕷️ SmartParser: {self.source_url}")
+    logger.info(f"🔍 Mode JS: {'✅ Selenium' if self.use_js else '❌ Désactivé'}")
+    
+    try:
+        # ✅ ÉTAPE 1 : VALIDER LE SITE AVANT DE SCRAPER
+        logger.info(f"🔍 Validation du site: {self.source_url}")
+        soup_check = self.fetch_html_smart(self.source_url)
         
-        try:
-            # Récupérer la page principale
-            soup = self.fetch_html_smart(self.source_url)
-            
-            if not soup:
-                logger.error(" Impossible de récupérer la page")
-                return []
-            
-            # Extraire les offres
-            offres = self.parse(soup)
-            
-            if not offres:
-                logger.warning(" Aucune offre extraite")
-                return []
-            
-            # Chercher les PDFs pour chaque offre
-            logger.info(f" Recherche de documents pour {len(offres)} offres...")
-            
-            for i, offre in enumerate(offres, 1):
-                if offre.get('url_source'):
-                    try:
-                        time.sleep(random.uniform(1, 2))
-                        logger.info(f"  [{i}/{len(offres)}] {offre['titre'][:50]}...")
-                        
-                        detail_soup = self.fetch_html_smart(offre['url_source'])
-                        
-                        if detail_soup:
-                            pdf_url = self._trouver_pdf_dans_page(detail_soup, offre['url_source'])
-                            if pdf_url:
-                                offre['url_tdr'] = pdf_url
-                                logger.info(f"     Document: {pdf_url[:80]}...")
-                    except Exception as e:
-                        logger.debug(f"    ❌ Erreur: {e}")
-            
-            avec_doc = sum(1 for o in offres if o.get('url_tdr'))
-            logger.info(f" Résultat: {len(offres)} offres, {avec_doc} avec document")
-            
-            return offres
-            
-        except Exception as e:
-            logger.error(f"❌ Erreur: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+        if not soup_check:
+            logger.error("❌ Impossible de récupérer la page")
             return []
-        finally:
-            self._close_driver()
+        
+        # Valider le site
+        validator = SiteValidator(soup=soup_check, url=self.source_url)
+        validation = validator.validate()
+        
+        if not validation['is_valid']:
+            logger.warning(f"❌ Site REJETÉ - Score: {validation['score']}, Confiance: {validation['confidence']}")
+            logger.warning(f"   Raisons: {validation['rejection_reasons']}")
+            logger.warning(f"   Ce site ne semble pas publier d'appels d'offres")
+            return []
+        
+        logger.info(f"✅ Site VALIDÉ - Score: {validation['score']}, Confiance: {validation['confidence']}")
+        
+        # ✅ ÉTAPE 2 : PARSER LES OFFRES
+        soup = soup_check
+        offres = self.parse(soup)
+        
+        if not offres:
+            logger.warning("⚠️ Aucune offre extraite")
+            return []
+        
+        # ✅ ÉTAPE 3 : VALIDER CHAQUE OFFRE INDIVIDUELLEMENT
+        offres_valides = []
+        for offre in offres:
+            titre = offre.get('titre', '')
+            
+            # Vérifier si le titre correspond à un appel d'offres
+            if not is_valid_offer_title(titre):
+                logger.debug(f"⏭️ Offre rejetée (titre non-valide): {titre[:50]}...")
+                continue
+            
+            # Vérifier si le contenu n'est pas du contenu non-offre
+            description = offre.get('description', '')
+            if is_rejected_content(titre + ' ' + description):
+                logger.debug(f"⏭️ Offre rejetée (contenu non-offre): {titre[:50]}...")
+                continue
+            
+            offres_valides.append(offre)
+        
+        logger.info(f"📊 Offres valides: {len(offres_valides)}/{len(offres)}")
+        
+        if not offres_valides:
+            logger.warning("⚠️ Aucune offre valide après filtrage")
+            return []
+        
+        # ✅ ÉTAPE 4 : CHERCHER LES PDFs
+        logger.info(f"📄 Recherche de documents pour {len(offres_valides)} offres...")
+        
+        for i, offre in enumerate(offres_valides, 1):
+            if offre.get('url_source'):
+                try:
+                    time.sleep(random.uniform(1, 2))
+                    logger.info(f"  [{i}/{len(offres_valides)}] {offre['titre'][:50]}...")
+                    
+                    detail_soup = self.fetch_html_smart(offre['url_source'])
+                    
+                    if detail_soup:
+                        pdf_url = self._trouver_pdf_dans_page(detail_soup, offre['url_source'])
+                        if pdf_url:
+                            offre['url_tdr'] = pdf_url
+                            logger.info(f"     📄 Document: {pdf_url[:80]}...")
+                except Exception as e:
+                    logger.debug(f"    ❌ Erreur: {e}")
+        
+        avec_doc = sum(1 for o in offres_valides if o.get('url_tdr'))
+        logger.info(f"✅ Résultat: {len(offres_valides)} offres valides, {avec_doc} avec document")
+        
+        return offres_valides
+        
+    except Exception as e:
+        logger.error(f"❌ Erreur: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
+    finally:
+        self._close_driver()

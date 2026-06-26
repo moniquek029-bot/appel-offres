@@ -3,6 +3,7 @@ from offres.scraping.base import BaseScraper
 import logging
 from urllib.parse import urljoin
 import re
+from offres.scraping.utils import detecter_pays
 
 logger = logging.getLogger(__name__)
 
@@ -78,3 +79,38 @@ class UNFPAParser(BaseScraper):
         except Exception as e:
             logger.error(f"Erreur extraction documents: {e}")
             return documents
+        
+def run(self) -> list[dict]:
+    logger.info(f"🕷️ UNFPA scraping: {self.source_url}")
+    
+    try:
+        soup = self.fetch_and_parse(use_js=False)
+        
+        if not soup:
+            logger.error("❌ Page non récupérée")
+            return []
+        
+        # ✅ DEBUG : Afficher le titre de la page
+        title = soup.title.string if soup.title else 'Sans titre'
+        logger.info(f"📄 Titre de la page: {title}")
+        
+        # ✅ DEBUG : Compter les liens
+        links = soup.find_all('a', href=True)
+        logger.info(f"🔗 Nombre de liens: {len(links)}")
+        
+        # ✅ DEBUG : Afficher les 10 premiers liens
+        for i, link in enumerate(links[:10], 1):
+            href = link.get('href', '')
+            text = link.get_text(strip=True)[:50]
+            logger.info(f"   {i}. {text} → {href}")
+        
+        offres = self.parse(soup)
+        
+        logger.info(f"✅ UNFPA: {len(offres)} offre(s) extraite(s)")
+        return offres
+        
+    except Exception as e:
+        logger.error(f"❌ Erreur UNFPA: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []

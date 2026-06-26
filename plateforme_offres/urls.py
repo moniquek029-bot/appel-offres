@@ -106,8 +106,7 @@ urlpatterns = [
     path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
     
     # ... reste du fichier inchangé ...urlpatterns = [
-    # Django admin
-    path('admin/', admin.site.urls),
+   
     
     # =========================================================================
     # AUTHENTIFICATION (avec alias pour compatibilité frontend)
@@ -205,9 +204,7 @@ urlpatterns = [
     path('api/profile/', UserProfileView.as_view(), name='user-profile'),
     path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
     
-    # ... reste du fichier inchangé ...urlpatterns = [
-    # Django admin
-    path('admin/', admin.site.urls),
+    
     
     # =========================================================================
     # AUTHENTIFICATION (avec alias pour compatibilité frontend)

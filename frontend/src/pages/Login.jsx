@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);  // ✅ NOUVEAU
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
@@ -102,18 +103,18 @@ const Login = () => {
               </div>
             </div>
 
-            {/* Mot de passe */}
+            {/* ✅ Mot de passe avec icône œil */}
             <div className="mb-4">
               <label htmlFor="password" className="form-label fw-semibold text-secondary">
                 <i className="bi bi-lock me-1"></i>
                 Mot de passe
               </label>
-              <div className="input-group">
+              <div className="input-group position-relative">
                 <span className="input-group-text bg-light border-0">
                   <i className="bi bi-lock text-primary"></i>
                 </span>
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   className="form-control form-control-lg border-0 bg-light"
                   id="password"
                   placeholder="••••••••"
@@ -121,7 +122,33 @@ const Login = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   disabled={loading}
+                  style={{ paddingRight: '50px' }}
                 />
+                {/* ✅ Bouton œil */}
+                <button
+                  type="button"
+                  className="btn position-absolute end-0 top-50 translate-middle-y me-2"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{ 
+                    zIndex: 10,
+                    color: '#6c757d',
+                    border: 'none',
+                    background: 'transparent',
+                    padding: '8px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = '#1E3A8A';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = '#6c757d';
+                  }}
+                  title={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                >
+                  <i 
+                    className={`bi ${showPassword ? 'bi-eye-slash-fill' : 'bi-eye-fill'}`}
+                    style={{ fontSize: '1.2rem' }}
+                  ></i>
+                </button>
               </div>
             </div>
 

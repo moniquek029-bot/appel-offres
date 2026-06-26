@@ -91,3 +91,35 @@ class BaseScraper:
         full_url = url if url.startswith('http') else urljoin(self.base_url, url)
         html = self.fetch_html_with_js(full_url) if use_js else self.fetch_html(full_url)
         return BeautifulSoup(html, 'html.parser') if html else None
+    
+
+    # Dans offres/scraping/base.py, ajoutez cette méthode à la classe BaseScraper :
+
+def validate_site(self) -> dict:
+    """
+    Valide si le site est un site d'appels d'offres
+    """
+    from offres.scraping.site_validator import SiteValidator
+    
+    try:
+        # Récupérer la page
+        soup = self.fetch_and_parse(use_js=False)
+        
+        if not soup:
+            return {
+                'is_valid': False,
+                'score': 0,
+                'error': 'Impossible de récupérer la page'
+            }
+        
+        # Valider
+        validator = SiteValidator(soup=soup, url=self.source_url)
+        return validator.validate()
+    
+    except Exception as e:
+        logger.error(f"❌ Erreur validation: {e}")
+        return {
+            'is_valid': False,
+            'score': 0,
+            'error': str(e)
+        }
