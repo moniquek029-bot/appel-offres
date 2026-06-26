@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
-import Notifications from '../components/Notifications';
+import Notifications from './Notifications';
 import Messagerie from '../components/Messagerie';
 
 const BureauDashboard = () => {

@@ -6,6 +6,8 @@ import Footer from './components/Footer';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ErrorBoundary from './components/ErrorBoundary'; 
 
+import Notifications from './pages/Notifications';
+
 import ForgotPassword from './pages/ForgotPassword';  
 import ResetPassword from './pages/ResetPassword';     
 // Pages principales
@@ -15,6 +17,9 @@ import Login from './pages/Login';
 import Offres from './pages/Offres';
 import APropos from './pages/APropos';
 
+
+import Profil from './pages/Profil';  
+import Settings from './pages/Settings'; 
 // Pages d'inscription
 import ChooseRole from './pages/ChooseRole';
 import RegisterExpert from './pages/RegisterExpert';
@@ -100,8 +105,16 @@ function App() {
 
                 <Route path="/expert/suggestions" element={<ProtectedRoute><ExpertSuggestions /></ProtectedRoute>} />
 
-                <Route path="/forgot-password" element={<ForgotPassword />} />      
+                <Route path="/forgot-password" element={<ForgotPassword />} />  
+                <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/reset-password/:token" element={<ResetPassword />} />
+
+
+                {/* Routes protégées */}
+                {/*<Route path="/dashboard" element={<Dashboard />} />*/}
+                <Route path="/profil" element={<Profil />} />  
+                <Route path="/settings" element={<Settings />} />  
+        
 
                 {/* Routes d'inscription */}
                 <Route path="/register" element={<ChooseRole />} />
@@ -151,6 +164,16 @@ function App() {
                   element={
                     <ProtectedRoute allowedRoles={['BUREAU', 'BUREAU_ETUDE']}>
                       <BureauDashboard />
+                    </ProtectedRoute>
+                  } 
+                />
+
+
+                <Route 
+                  path="/notifications" 
+                  element={
+                    <ProtectedRoute>
+                      <Notifications />
                     </ProtectedRoute>
                   } 
                 />

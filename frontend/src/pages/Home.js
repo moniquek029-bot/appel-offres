@@ -5,6 +5,8 @@ import VerticalFilters from '../components/VerticalFilters';
 import SearchBar from '../components/SearchBar';
 import { searchOffres } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { buildMultilingualSearch } from '../utils/multilingualKeywords';
+
 
 const Home = () => {
   const { user } = useAuth();
@@ -14,51 +16,77 @@ const Home = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  
   const [filters, setFilters] = useState({
     keyword: '',
     pays: '',
     max_days: '',
     domaine: '',
     structure: '',
+    date_publication: '',
+    date_cloture: '',
   });
+
+  // src/pages/Home.jsx
+
+  // ✅ AJOUTER CET IMPORT EN HAUT DU FICHIER (avec les autres imports)
 
   const fetchOffres = async (page = 1, newFilters = null) => {
     try {
       setLoading(true);
       setError(null);
-      
+    
       const currentFilters = newFilters || filters;
-      const response = await searchOffres({ 
-        keyword: currentFilters.keyword,
+    
+      // ✅ Utiliser la recherche multilingue
+      const searchKeyword = currentFilters.keyword || '';
+      const multilingualQuery = buildMultilingualSearch(searchKeyword);
+    
+      // ✅ Construction DIRECTE des paramètres pour l'API
+      const apiParams = {
+        keyword: multilingualQuery || searchKeyword, // ✅ Utiliser la requête multilingue
         pays: currentFilters.pays,
         max_days: currentFilters.max_days,
         domaine: currentFilters.domaine,
-        structure: currentFilters.structure,
-        date_debut: currentFilters.date_debut,
-        date_fin: currentFilters.date_fin,
+        structure: currentFilters.structure || '', // ✅ Structure peut être vide
         page 
-      });
-      
+      };
+    
+      // ✅ Envoyer date_publication DIRECTEMENT (pas de conversion)
+      if (currentFilters.date_publication) {
+        apiParams.date_publication = currentFilters.date_publication;
+        console.log(' Date publication envoyée:', currentFilters.date_publication);
+      }
+    
+      // ✅ Envoyer date_cloture DIRECTEMENT
+      if (currentFilters.date_cloture) {
+        apiParams.date_cloture = currentFilters.date_cloture;
+        console.log(' Date clôture envoyée:', currentFilters.date_cloture);
+      }
+    
+      console.log(' Paramètres envoyés à l API:', apiParams);
+    
+      const response = await searchOffres(apiParams);
+    
       setOffres(response.results || []);
       setTotalCount(response.count || 0);
-      
+    
       const itemsPerPage = 10;
       const pages = Math.ceil((response.count || 0) / itemsPerPage);
       setTotalPages(pages);
       setCurrentPage(page);
-      
+    
       if (newFilters) {
         setFilters(newFilters);
       }
     } catch (err) {
-      console.error('Erreur API:', err);
+      console.error('❌ Erreur API:', err);
       setError('Impossible de charger les offres.');
       setOffres([]);
     } finally {
       setLoading(false);
     }
   };
-
   useEffect(() => {
     fetchOffres();
   }, []);
@@ -70,7 +98,14 @@ const Home = () => {
   };
 
   const handleFilterChange = (newFilters) => {
-    const updatedFilters = { ...filters, keyword: filters.keyword, ...newFilters };
+    const updatedFilters = { 
+      ...filters, 
+      ...newFilters
+    };
+    
+    console.log('🎯 Nouveaux filtres reçus:', newFilters);
+    console.log('🔄 Filtres mis à jour:', updatedFilters);
+    
     setFilters(updatedFilters);
     fetchOffres(1, updatedFilters);
   };
@@ -110,26 +145,17 @@ const Home = () => {
 
   return (
     <div className="min-vh-100 d-flex flex-column bg-light">
-      
-
-      {/* Barre de recherche en haut */}
       <SearchBar onSearch={handleSearch} />
 
-      {/* Layout: Filtres (gauche) + Résultats (droite) - EN FLEX ROW */}
       <div className="container py-4">
         <div className="row g-4">
-          
-          {/* Colonne des filtres - 1/4 de largeur */}
           <div className="col-lg-4 col-md-4">
-            <div className="sticky-top" style={{ top: '20px'  ,sIndex:1000}}>
+            <div className="sticky-top" style={{ top: '20px', zIndex: 1000 }}>
               <VerticalFilters onFilterChange={handleFilterChange} />
             </div>
           </div>
           
-          {/* Colonne des résultats - 3/4 de largeur */}
           <div className="col-lg-8 col-md-8">
-            
-            {/* En-tête des résultats */}
             <div className="d-flex justify-content-between align-items-center mb-4">
               <div>
                 <h4 className="mb-0 fw-bold">Appels d'offres disponibles</h4>
@@ -141,7 +167,7 @@ const Home = () => {
 
             {error && (
               <div className="alert alert-danger alert-dismissible fade show">
-                 {error}
+                {error}
                 <button type="button" className="btn-close" onClick={() => { setError(null); fetchOffres(1); }}></button>
               </div>
             )}
@@ -162,7 +188,15 @@ const Home = () => {
               <div className="alert alert-info text-center py-5">
                 <h5 className="mt-3">Aucune offre trouvée</h5>
                 <button className="btn btn-outline-primary mt-2" onClick={() => {
-                  const resetFilters = { keyword: '', pays: '', max_days: '', domaine: '', structure: '' };
+                  const resetFilters = { 
+                    keyword: '', 
+                    pays: '', 
+                    max_days: '', 
+                    domaine: '', 
+                    structure: '',
+                    date_publication: '',
+                    date_cloture: ''
+                  };
                   setFilters(resetFilters);
                   fetchOffres(1, resetFilters);
                 }}>
@@ -172,7 +206,6 @@ const Home = () => {
               </div>
             )}
 
-            {/* Pagination */}
             {totalPages > 1 && (
               <nav className="mt-5" aria-label="Pagination des offres">
                 <ul className="pagination justify-content-center flex-wrap">
@@ -199,7 +232,6 @@ const Home = () => {
                     <button className="page-link" onClick={() => handlePageChange(currentPage + 1)}>
                       <i className="bi bi-arrow-right me-1"></i>
                       Suivant 
-
                     </button>
                   </li>
                 </ul>

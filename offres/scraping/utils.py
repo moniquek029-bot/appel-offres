@@ -50,7 +50,7 @@ def detecter_pays(texte: str, pays_defaut: str = 'BF') -> str:
     for nom_pays, code in pays_tries:
         pattern = r'\b' + re.escape(nom_pays) + r'\b'
         if re.search(pattern, texte_lower):
-            logger.debug(f"🌍 Pays détecté: '{nom_pays}' → {code}")
+            logger.debug(f" Pays détecté: '{nom_pays}' → {code}")
             return code
     
     return pays_defaut
@@ -156,7 +156,7 @@ def is_valid_pdf_url(url, timeout: int = 10) -> bool:
         fallback = requests.get(url, headers=headers, timeout=timeout, stream=True)
         return fallback.status_code == 200
     except requests.RequestException as e:
-        logger.debug(f"❌ URL inaccessible {url}: {e}")
+        logger.debug(f" URL inaccessible {url}: {e}")
         return False
 
 
@@ -219,18 +219,18 @@ def fetch_and_validate_pdf(pdf_url: str, titre: str) -> bytes | None:
         
         content = response.content
         
-        # 🎯 VALIDATION ABSOLUE : Vérification du conteneur binaire
+        #  VALIDATION ABSOLUE : Vérification du conteneur binaire
         if not content.startswith(b'%PDF-'):
-            logger.warning(f"⚠️ Flux binaire non-PDF détecté pour l'URL: {pdf_url}")
+            logger.warning(f" Flux binaire non-PDF détecté pour l'URL: {pdf_url}")
             return None
         
         if len(content) < 1024:  # Moins de 1 Ko = Fichier corrompu ou vide
-            logger.warning(f"⚠️ Fichier PDF anormalement petit ({len(content)} octets)")
+            logger.warning(f" Fichier PDF anormalement petit ({len(content)} octets)")
             return None
             
         return content
     except Exception as e:
-        logger.debug(f"❌ Échec de la lecture du flux PDF {pdf_url}: {e}")
+        logger.debug(f" Échec de la lecture du flux PDF {pdf_url}: {e}")
         return None
 
 
@@ -256,3 +256,55 @@ def get_first_pdf_url(soup, base_url):
         return None
     # On passe la string HTML brute à la nouvelle fonction robuste
     return extract_pdf_from_page(str(soup), base_url)
+
+
+
+#Archivage et suprression
+# =============================================================================
+# CYCLE DE VIE ET PURGE AUTOMATIQUE DES OFFRES
+# =============================================================================
+
+def archive_and_delete_old_offres(days_to_keep=30):
+    """
+    1. Oriente les offres fraîches vers le statut 'Expiré' via la fonction native.
+    2. Identifie et supprime les offres déjà marquées comme 'Expiré' depuis plus de X jours.
+    Libère l'espace sur la base de données et supprime les fichiers physiques (PDF).
+    """
+    from offres.models import AppelOffre
+    from django.utils import timezone
+    
+    # Étape 1 : Exécuter l'archivage standard existant
+    try:
+        archived_count = archive_expired_offres()
+        if archived_count > 0:
+            logger.info(f" {archived_count} nouvelles offres sont passées au statut Expiré.")
+    except Exception as e:
+        logger.error(f"Erreur lors de l'archivage automatique : {e}")
+        archived_count = 0
+
+    # Étape 2 : Purge et suppression définitive pour libérer l'espace
+    date_limite = timezone.now().date() - timezone.timedelta(days=days_to_keep)
+    
+    # Cibler les offres déjà expirées dont la date de clôture dépasse le seuil de rétention
+    offres_a_supprimer = AppelOffre.objects.filter(
+        statut='Expiré', 
+        date_cloture__lt=date_limite
+    )
+    
+    deleted_count = offres_a_supprimer.count()
+    
+    if deleted_count > 0:
+        for offre in offres_a_supprimer:
+            if offre.fichier_pdf:
+                try:
+                    offre.fichier_pdf.delete(save=False)
+                except Exception as e:
+                    logger.error(f"Impossible de détruire le fichier PDF physique pour l'offre {offre.id} : {e}")
+        
+        # Effacement définitif en BDD
+        offres_a_supprimer.delete()
+        logger.info(f" Nettoyage de l'espace disque accompli : {deleted_count} anciennes offres purgées.")
+    else:
+        logger.info("Aucune ancienne offre expirée ne nécessite de purge aujourd'hui.")
+
+    return archived_count, deleted_count

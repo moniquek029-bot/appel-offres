@@ -58,6 +58,12 @@ const AdminDashboard = () => {
   const [newOffreSuccess, setNewOffreSuccess] = useState(null);
   const [fichierPdf, setFichierPdf] = useState(null);
   const [fichierPdfError, setFichierPdfError] = useState(null);
+    // =============================================================================
+  // ÉTATS POUR LE SCRAPING
+  // =============================================================================
+  const [isScraping, setIsScraping] = useState(false);
+  const [scrapingMessage, setScrapingMessage] = useState('');
+  const [scrapingResult, setScrapingResult] = useState(null);
 
   // =============================================================================
   // FONCTIONS POUR LA MODIFICATION DE SOURCE
@@ -451,14 +457,25 @@ const AdminDashboard = () => {
       return;
     }
 
-    if (!window.confirm(`Lancer le scraping sur ${selectedItems.length} source(s) ?`)) return;
+    if (!window.confirm(`Lancer le scraping sur ${selectedItems.length} source(s) ?\n\n⏱️ Cela peut prendre plusieurs minutes.`)) return;
+
+    // ✅ Démarrer le scraping
+    setIsScraping(true);
+    setScrapingMessage(' Scraping en cours... Cela peut prendre plusieurs minutes.');
+    setScrapingResult(null);
+    setError(null);
+    setSuccess(null);
 
     try {
-      setSuccess('🚀 Scraping en cours...');
-    
-      const response = await api.post('/admin/sources/run/', { source_ids: selectedItems });
-      setSuccess(response.data?.message || '✅ Scraping terminé');
-
+      // ✅ Augmenter le timeout à 10 minutes (600000 ms)
+      const response = await api.post('/admin/sources/run/', 
+        { source_ids: selectedItems },
+        { timeout: 600000 }  // 10 minutes
+      );
+      
+      setScrapingResult(response.data);
+      setScrapingMessage(' Scraping terminé avec succès !');
+      
       const newTimestamp = Date.now();
       setLastRefresh(newTimestamp);
     
@@ -469,12 +486,30 @@ const AdminDashboard = () => {
       ]);
     
       setSelectedItems([]);
-      setTimeout(() => setSuccess(null), 5000);
+      
+      // Masquer le résultat après 15 secondes
+      setTimeout(() => {
+        setScrapingResult(null);
+        setScrapingMessage('');
+      }, 15000);
     
     } catch (err) {
-      console.error('❌ Erreur scraping:', err);
-      setError(`❌ Erreur: ${err.response?.data?.error || err.message}`);
-      setTimeout(() => setError(null), 5000);
+      console.error(' Erreur scraping:', err);
+      
+      if (err.code === 'ECONNABORTED') {
+        setScrapingMessage('⏱ Le scraping a pris trop de temps. Veuillez réessayer avec moins de sources.');
+      } else {
+        setScrapingMessage(` Erreur: ${err.response?.data?.error || err.message}`);
+      }
+      
+      // Masquer l'erreur après 10 secondes
+      setTimeout(() => {
+        setScrapingMessage('');
+        setScrapingResult(null);
+      }, 10000);
+      
+    } finally {
+      setIsScraping(false);
     }
   };
 
@@ -494,7 +529,7 @@ const AdminDashboard = () => {
         est_actif: true
       };
       
-      console.log('📤 Données envoyées:', sourceData);
+      console.log(' Données envoyées:', sourceData);
       
       const response = await api.post('/admin/sources/', sourceData);
       
@@ -639,21 +674,21 @@ const AdminDashboard = () => {
         commentaire_admin: formData.commentaire_admin || ''
       };
     
-      console.log('📤 Données envoyées:', suggestionData);
+      console.log(' Données envoyées:', suggestionData);
     
       const response = await api.post('/admin/suggestions/', suggestionData);
-      console.log('✅ Réponse:', response.data);
+      console.log(' Réponse:', response.data);
     
       setShowModal({ type: null, data: null });
       setFormData({});
-      setSuccess('✅ Suggestion envoyée à l\'expert');
+      setSuccess('Suggestion envoyée à l\'expert');
       await fetchSuggestions();
     
       setTimeout(() => setSuccess(null), 3000);
     
     } catch (err) {
-      console.error('❌ Erreur envoi suggestion:', err);
-      console.error('❌ Réponse backend:', err.response?.data);
+      console.error(' Erreur envoi suggestion:', err);
+      console.error(' Réponse backend:', err.response?.data);
     
       let errorMsg = 'Échec de l\'envoi';
       if (err.response?.data) {
@@ -694,7 +729,7 @@ const AdminDashboard = () => {
         confirm: 'EFFACER TOUT'
       });
       
-      setSuccess('✅ Historique effacé avec succès');
+      setSuccess(' Historique effacé avec succès');
       setShowModal({ type: null, data: null });
       setConfirmText('');
       setFormData({});
@@ -702,11 +737,11 @@ const AdminDashboard = () => {
       
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      console.error('❌ Erreur effacement historique:', err);
-      console.error('❌ Réponse backend:', err.response?.data);
+      console.error(' Erreur effacement historique:', err);
+      console.error(' Réponse backend:', err.response?.data);
       
       const errorMsg = err.response?.data?.error || 'Échec de l\'effacement';
-      setError(`❌ Erreur: ${errorMsg}`);
+      setError(` Erreur: ${errorMsg}`);
       setTimeout(() => setError(null), 5000);
     }
   };
@@ -716,25 +751,30 @@ const AdminDashboard = () => {
   // =============================================================================
   const markMessageAsRead = async (messageId) => {
     try {
+      // ✅ URL correcte : /messages/{id}/marquer-lu/
       await api.post(`/messages/${messageId}/marquer-lu/`);
       setMessages(prevMessages => prevMessages.map(msg => 
         msg.id === messageId ? {...msg, est_lu: true} : msg
       ));
       fetchStats();
     } catch (err) {
-      console.error('❌ Erreur marquage lu:', err);
+      console.error(' Erreur marquage lu:', err);
     }
   };
 
   const handleReplyMessage = async (messageId, replyContent) => {
     if (!replyContent.trim()) return;
-    
+  
     try {
-      await markMessageAsRead(messageId);
-      await api.post(`/admin/messages/${messageId}/repondre/`, {
+     // ✅ Étape 1 : Marquer comme lu
+      await api.post(`/messages/${messageId}/marquer-lu/`);
+    
+      // ✅ Étape 2 : Envoyer la réponse (NOUVELLE URL !)
+      const response = await api.post(`/messages/${messageId}/repondre/`, {
         contenu: replyContent
       });
-      
+    
+      // ✅ Étape 3 : Mettre à jour l'état local
       setMessages(prevMessages => prevMessages.map(msg => 
         msg.id === messageId ? {
           ...msg, 
@@ -743,13 +783,14 @@ const AdminDashboard = () => {
           reponse_contenu: replyContent
         } : msg
       ));
-      
-      setSuccess('✅ Réponse envoyée');
+    
+      setSuccess(' Réponse envoyée');
       await Promise.all([fetchMessages(), fetchStats()]);
       setTimeout(() => setSuccess(null), 3000);
+    
     } catch (err) {
-      console.error('❌ Erreur envoi réponse:', err);
-      setError(`❌ Erreur: ${err.response?.data?.error || 'Échec de l\'envoi'}`);
+      console.error(' Erreur envoi réponse:', err);
+      setError(` Erreur: ${err.response?.data?.error || 'Échec de l\'envoi'}`);
       setTimeout(() => setError(null), 5000);
     }
   };
@@ -1069,97 +1110,130 @@ const AdminDashboard = () => {
               <button 
                 className="btn btn-success btn-sm" 
                 onClick={handleLaunchScraping}
-                disabled={selectedItems.length === 0}
+                disabled={selectedItems.length === 0 || isScraping}
                 style={{ padding: '1px 4px', fontSize: '0.65rem' }}
               >
-                <i className="bi bi-play-fill me-1"></i>
-                Lancer ({selectedItems.length})
+                {isScraping ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-1" role="status" style={{ width: '0.7rem', height: '0.7rem' }}></span>
+                    Scraping...
+                  </>
+                ) : (
+                  <>
+                    <i className="bi bi-play-fill me-1"></i>
+                    Lancer ({selectedItems.length})
+                  </>
+                )}
               </button>
             </div>
           </div>
           
-          {/* ✅ TABLEAU AVEC SCROLL */}
-          <div className="table-responsive" style={{ overflowY: 'auto', flex: 1 }}>
-            <table className="table table-hover table-sm mb-0" style={{ fontSize: '0.7rem' }}>
+          {/* ✅ EN-TÊTE DYNAMIQUE AVEC LE COMPTEUR TOTAL */}
+          <div className="d-flex justify-content-between align-items-center mb-2 px-1">
+            <span className="fw-bold text-secondary" style={{ fontSize: '0.8rem' }}>
+              <i className="bi bi-list-nested me-1"></i>
+              Total des sources de scraping : <span className="badge bg-primary ms-1">{sources.length}</span>
+            </span>
+          </div>
+
+          {/* ✅ TABLEAU AVEC SCROLL VERTICAL ET HORIZONTAL */}
+          <div 
+            className="table-responsive border rounded" 
+            style={{ 
+              maxHeight: '400px', 
+              overflowY: 'auto', 
+              overflowX: 'auto',
+              flex: 1 
+            }}
+          >
+            <table className="table table-hover table-sm align-middle mb-0" style={{ fontSize: '0.75rem' }}>
               <thead className="table-light sticky-top" style={{ top: 0, zIndex: 10, backgroundColor: '#f8f9fa' }}>
                 <tr>
-                  <th style={{ width: '25px' }}>
+                  <th style={{ width: '30px', paddingLeft: '10px' }}>
                     <input 
                       type="checkbox" 
                       className="form-check-input"
-                      style={{ transform: 'scale(0.8)' }}
+                      style={{ transform: 'scale(0.85)', cursor: 'pointer' }}
                       checked={sources.length > 0 && selectedItems.length === sources.length}
                       onChange={toggleSelectAll}
                     />
                   </th>
                   <th>Source</th>
-                  <th>URL</th>
+                  <th>URL Site Cible</th>
                   <th>Statut</th>
                   <th>Dernier scraping</th>
-                  <th style={{ width: '70px' }}>Actions</th>
+                  <th style={{ width: '80px', textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {sources.map(source => (
                   <tr key={source.id}>
-                    <td>
+                    <td style={{ paddingLeft: '10px' }}>
                       <input 
                         type="checkbox" 
                         className="form-check-input"
-                        style={{ transform: 'scale(0.8)' }}
+                        style={{ transform: 'scale(0.85)', cursor: 'pointer' }}
                         checked={selectedItems.includes(source.id)}
                         onChange={() => toggleSelect(source.id)}
                       />
                     </td>
-                    <td className="text-truncate" style={{ maxWidth: '100px' }}>
+                    <td className="fw-semibold text-dark text-truncate" style={{ maxWidth: '120px' }}>
                       <i className="bi bi-globe me-1 text-primary"></i>
                       {source.nom}
                     </td>
                     <td>
-                      <a href={source.url_racine} target="_blank" rel="noopener noreferrer" className="text-truncate d-inline-block text-decoration-none" style={{ maxWidth: '150px', color: 'var(--primary)' }}>
+                      <a 
+                        href={source.url_racine} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-truncate d-inline-block text-decoration-none" 
+                        style={{ maxWidth: '180px', color: 'var(--bs-primary)' }}
+                        title={source.url_racine}
+                      >
                         <i className="bi bi-link-45deg me-1"></i>
-                        {source.url_racine?.replace('https://', '').replace('http://', '').substring(0, 25)}...
+                        {source.url_racine?.replace('https://', '').replace('http://', '').substring(0, 28)}...
                       </a>
                     </td>
                     <td>
                       <button
                         onClick={() => handleToggleSourceActive(source.id, source.est_actif)}
-                        className={`badge ${source.est_actif ? 'bg-success' : 'bg-secondary'}`}
+                        className={`badge d-inline-flex align-items-center gap-1 ${source.est_actif ? 'bg-success' : 'bg-secondary'}`}
                         style={{ 
-                          fontSize: '0.6rem', 
+                          fontSize: '0.65rem', 
                           cursor: 'pointer',
                           border: 'none',
                           padding: '4px 8px',
-                          transition: 'all 0.2s'
+                          borderRadius: '4px',
+                          transition: 'all 0.2s ease'
                         }}
                         title={source.est_actif ? 'Cliquez pour désactiver' : 'Cliquez pour activer'}
                       >
                         {source.est_actif ? (
-                          <><i className="bi bi-check-circle me-1"></i>Actif</>
+                          <><i className="bi bi-check-circle"></i>Actif</>
                         ) : (
-                          <><i className="bi bi-x-circle me-1"></i>Inactif</>
+                          <><i className="bi bi-x-circle"></i>Inactif</>
                         )}
                       </button>
                     </td>
-                    <td>
-                      <i className="bi bi-clock me-1 text-muted"></i>
+                    <td className="text-muted">
+                      <i className="bi bi-clock me-1" style={{ fontSize: '0.7rem' }}></i>
                       {source.last_scraped ? new Date(source.last_scraped).toLocaleDateString('fr-FR') : '-'}
                     </td>
                     <td>
-                      <div className="d-flex gap-1">
+                      <div className="d-flex gap-1 justify-content-center">
                         <button 
-                          className="btn btn-outline-primary btn-sm" 
+                          className="btn btn-sm btn-outline-primary" 
                           onClick={() => openEditSourceModal(source)}
-                          style={{ padding: '0 3px', fontSize: '0.65rem' }}
-                          title="Modifier"
+                          style={{ padding: '2px 6px', fontSize: '0.7rem' }}
+                          title="Modifier la source"
                         >
                           <i className="bi bi-pencil"></i>
                         </button>
                         <button 
-                          className="btn btn-outline-danger btn-sm" 
+                          className="btn btn-sm btn-outline-danger" 
                           onClick={() => handleDeleteSource(source.id)} 
-                          style={{ padding: '0 3px', fontSize: '0.65rem' }}
-                          title="Supprimer"
+                          style={{ padding: '2px 6px', fontSize: '0.7rem' }}
+                          title="Supprimer la source"
                         >
                           <i className="bi bi-trash"></i>
                         </button>
@@ -1167,7 +1241,15 @@ const AdminDashboard = () => {
                     </td>
                   </tr>
                 ))}
-                {!sources.length && <tr><td colSpan="6" className="text-center py-3 text-muted">Aucune source</td></tr>}
+      
+                {!sources.length && (
+                  <tr>
+                    <td colSpan="6" className="text-center py-4 text-muted bg-light">
+                      <i className="bi bi-folder-x me-1 fs-5 d-block mb-1"></i>
+                      Aucune source de scraping configurée.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

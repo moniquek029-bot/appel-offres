@@ -12,17 +12,64 @@ const Newsletter = ({ variant = 'footer' }) => {
     setLoading(true);
     setStatus({ type: '', message: '' });
 
-    try {
-      await api.post('/newsletter/subscribe/', { email });
-      setStatus({ type: 'success', message: ' Inscription réussie !' });
-      setEmail('');
-      setTimeout(() => setStatus({ type: '', message: '' }), 3000);
-    } catch (err) {
+  // Validation basique de l'email
+    if (!email || !/\S+@\S+\.\S+/.test(email)) {
       setStatus({ 
         type: 'error', 
-        message: err.response?.status === 400 ? 'Cet email est déjà inscrit.' : 'Erreur lors de l\'inscription.' 
+        message: '❌ Veuillez entrer une adresse email valide.' 
       });
-      setTimeout(() => setStatus({ type: '', message: '' }), 3000);
+      setLoading(false);
+      setTimeout(() => setStatus({ type: '', message: '' }), 4000);
+      return;
+    }
+
+    try {
+      const response = await api.post('/newsletter/subscribe/', { email });
+    
+    // ✅ Utiliser le message du backend (plus informatif)
+      const backendMessage = response.data?.message || '✅ Inscription réussie !';
+      const emailSent = response.data?.email_sent;
+    
+    // ✅ Message différent selon si l'email a été envoyé ou non
+      if (emailSent) {
+        setStatus({ 
+          type: 'success', 
+          message: `${backendMessage} 📧 Vérifiez votre boîte de réception.` 
+        });
+      } else {
+        setStatus({ 
+          type: 'success', 
+          message: `${backendMessage}` 
+        });
+      }
+    
+      setEmail('');
+    
+    // ✅ Délai plus long pour que l'utilisateur puisse lire
+      setTimeout(() => setStatus({ type: '', message: '' }), 5000);
+    
+    } catch (err) {
+      let errorMessage = '❌ Erreur lors de l\'inscription.';
+    
+    // Gestion des différents codes d'erreur
+      if (err.response?.status === 400) {
+      // Email déjà inscrit ou données invalides
+        const backendError = err.response?.data?.error || err.response?.data?.email?.[0];
+        errorMessage = backendError 
+          ? `⚠️ ${backendError}` 
+          : '⚠️ Cet email est déjà inscrit.';
+      } else if (err.response?.status === 500) {
+        errorMessage = '❌ Erreur serveur. Veuillez réessayer plus tard.';
+      } else if (!err.response) {
+        errorMessage = '❌ Impossible de contacter le serveur. Vérifiez votre connexion.';
+      }
+    
+      setStatus({ 
+        type: 'error', 
+        message: errorMessage 
+      });
+      setTimeout(() => setStatus({ type: '', message: '' }), 5000);
+    
     } finally {
       setLoading(false);
     }
@@ -50,8 +97,22 @@ const Newsletter = ({ variant = 'footer' }) => {
           </button>
         </div>
         {status.message && (
-          <div className={`small mt-2 ${status.type === 'success' ? 'text-success' : 'text-danger'}`}>
-            {status.message}
+          <div 
+            className={`alert alert-${status.type === 'success' ? 'success' : 'danger'} mt-3 d-flex align-items-center`}
+            role="alert"
+            style={{ 
+              animation: 'slideIn 0.3s ease-out',
+              borderLeft: `4px solid ${status.type === 'success' ? '#10B981' : '#EF4444'}`
+            }}
+          >
+            <i className={`bi ${status.type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill'} me-2`}></i>
+            <span>{status.message}</span>
+            <button 
+              type="button" 
+              className="btn-close ms-auto" 
+              onClick={() => setStatus({ type: '', message: '' })}
+              style={{ fontSize: '0.7rem' }}
+            ></button>
           </div>
         )}
       </form>

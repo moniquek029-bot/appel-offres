@@ -3,6 +3,7 @@ offres/views.py
 Vues avec contrôle d'accès par rôle et gestion des profils obligatoires.
 ✅ VERSION CORRIGÉE : Plus de doublons, scraping synchrone, imports organisés
 """
+from offres.utils.domain_keywords import get_domain_keywords
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.conf import settings
@@ -12,7 +13,10 @@ from django.contrib.auth import get_user_model
 from django.contrib.admin.models import LogEntry
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
+from datetime import timedelta
+from datetime import datetime
 
+from offres.services.email_service import EmailService
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -26,7 +30,7 @@ from .models import PasswordResetToken
 from .serializers import PasswordResetRequestSerializer, PasswordResetConfirmSerializer
 from .tasks import send_password_reset_email
 import logging
-from datetime import timedelta
+from django.utils import timezone
 import traceback
 import os
 
@@ -206,58 +210,101 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
             permission_classes = [permissions.IsAdminUser]
         
         return [permission() for permission in permission_classes]
-
     def get_queryset(self):
-        """Récupère le queryset avec filtres dynamiques"""
+        """Récupère le queryset avec filtres optimisés"""
+    
         queryset = AppelOffre.objects.all()
-        
-        # Filtre par statut (par défaut : Ouvert)
-        statut = self.request.query_params.get('statut')
+
+        # =========================================================================
+    # 1. STATUT
+        # =========================================================================
+        statut = self.request.query_params.get('statut') or self.request.query_params.get('status')
         if statut:
             queryset = queryset.filter(statut=statut)
-        else:
-            # Par défaut, montrer seulement les offres ouvertes
-            if self.action == 'list':
-                queryset = queryset.filter(statut='Ouvert')
-        
-        # Recherche par mots-clés
-        keywords = self.request.query_params.getlist('keywords', [])
-        if not keywords:
-            # Support pour le paramètre unique 'keyword'
-            keyword = self.request.query_params.get('keyword')
-            if keyword:
-                keywords = [keyword]
-        
-        if keywords:
-            q_objects = Q()
-            for keyword in keywords:
-                q_objects |= (
-                    Q(titre__icontains=keyword) | 
-                    Q(organisme__icontains=keyword) |
-                    Q(description__icontains=keyword)
+
+        # =========================================================================
+     # 2. MOTS-CLÉS (recherche simple, pas multilingue pour éviter les lenteurs)
+     # =========================================================================
+        keyword = self.request.query_params.get('keyword') or self.request.query_params.get('search')
+        if keyword:
+            queryset = queryset.filter(
+                Q(titre__icontains=keyword) | 
+                Q(organisme__icontains=keyword) |
+                Q(description__icontains=keyword)
+            )
+
+        # =========================================================================
+    # 3. PAYS
+        # =========================================================================
+        pays = self.request.query_params.get('pays') or self.request.query_params.get('country')
+        if pays:
+            queryset = queryset.filter(pays=pays)
+
+        # =========================================================================
+        # 4. DOMAINE - VERSION OPTIMISÉE ✅
+        # =========================================================================
+        domaine = self.request.query_params.get('domaine') or self.request.query_params.get('categorie')
+        if domaine:
+            try:
+                keywords = get_domain_keywords(domaine)
+            
+                # Créer UN SEUL Q object avec tous les mots-clés
+                q_objects = Q()
+                for kw in keywords:
+                    q_objects |= Q(titre__icontains=kw) | Q(description__icontains=kw)
+            
+                queryset = queryset.filter(q_objects)
+            except ImportError:
+                # Fallback simple si le module n'existe pas
+                queryset = queryset.filter(
+                    Q(titre__icontains=domaine) | Q(description__icontains=domaine)
                 )
-            queryset = queryset.filter(q_objects)
-        
-        # Filtre par date de clôture maximale
+
+        # =========================================================================
+    # 5. STRUCTURE
+        # =========================================================================
+        structure = self.request.query_params.get('structure') or self.request.query_params.get('organisme')
+        if structure:
+            queryset = queryset.filter(organisme__icontains=structure)
+
+        # =========================================================================
+    # 6. DATE DE PUBLICATION
+        # =========================================================================
+        date_pub = self.request.query_params.get('date_publication')
+        if date_pub:
+            try:
+                date_obj = datetime.strptime(date_pub, '%Y-%m-%d').date()
+                queryset = queryset.filter(date_publication=date_obj)
+            except (ValueError, TypeError):
+                pass
+
+        # =========================================================================
+    # 7. DATE DE CLÔTURE
+        # =========================================================================
+        date_cloture = self.request.query_params.get('date_cloture')
+        if date_cloture:
+            try:
+                date_obj = datetime.strptime(date_cloture, '%Y-%m-%d').date()
+                queryset = queryset.filter(date_cloture__lte=date_obj)
+            except (ValueError, TypeError):
+                pass
+
+        # =========================================================================
+    # 8. MAX_DAYS
+        # =========================================================================
         max_days = self.request.query_params.get('max_days')
         if max_days:
             try:
-                limit_date = timezone.now().date() + timedelta(days=int(max_days))
-                queryset = queryset.filter(date_cloture__lte=limit_date)
-            except ValueError:
+                days = int(max_days)
+                today = timezone.now().date()
+                date_limite = today + timedelta(days=days)
+                queryset = queryset.filter(
+                    date_cloture__gte=today,
+                    date_cloture__lte=date_limite
+                )
+            except (ValueError, TypeError):
                 pass
-        
-        # Filtre par pays
-        countries = self.request.query_params.getlist('countries', [])
-        if not countries:
-            pays = self.request.query_params.get('pays')
-            if pays:
-                countries = [pays]
-        
-        if countries:
-            queryset = queryset.filter(pays__in=countries)
-        
-        # Tri par publication ET par fraîcheur de scraping
+           
         return queryset.order_by('-date_publication', '-date_scraping')
 
     def create(self, request, *args, **kwargs):
@@ -592,8 +639,9 @@ class CritereRechercheViewSet(viewsets.ModelViewSet):
         serializer.save(utilisateur=self.request.user)
 
 
+
 class NewsletterSubscriptionView(generics.CreateAPIView):
-    """Inscription à la newsletter sans compte."""
+    """Inscription à la newsletter avec email de confirmation"""
     queryset = InscriptionNewsletter.objects.all()
     permission_classes = [permissions.AllowAny]
     serializer_class = NewsletterSubscriptionSerializer
@@ -601,13 +649,34 @@ class NewsletterSubscriptionView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({'message': 'Inscription réussie !'}, status=status.HTTP_201_CREATED)
-
+        instance = serializer.save()
+        
+        # ✅ ENVOI DE L'EMAIL DE CONFIRMATION
+        try:
+            nom = getattr(instance, 'nom', None) or getattr(instance, 'name', None)
+            email_sent = EmailService.send_newsletter_confirmation(
+                email=instance.email,
+                nom=nom
+            )
+            
+            if email_sent:
+                logger.info(f"✅ Email de confirmation envoyé à {instance.email}")
+            else:
+                logger.warning(f"⚠️ Échec envoi email à {instance.email}")
+        except Exception as e:
+            logger.error(f"❌ Erreur envoi email newsletter: {e}")
+            # On continue même si l'email échoue
+        
+        return Response({
+            'message': 'Inscription réussie ! Un email de confirmation vous a été envoyé.',
+            'email_sent': True
+        }, status=status.HTTP_201_CREATED)
 
 # =============================================================================
 # MESSAGERIE
 # =============================================================================
+
+from offres.services.email_service import EmailService  # ✅ À ajouter en haut du fichier
 
 class MessageViewSet(viewsets.ModelViewSet):
     """API pour la messagerie entre utilisateurs et administrateur"""
@@ -623,19 +692,35 @@ class MessageViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         user = self.request.user
         destinataire_id = self.request.data.get('destinataire')
+        
         if not destinataire_id:
             admin = User.objects.filter(is_superuser=True).first()
             destinataire = admin
         else:
             destinataire = User.objects.get(id=destinataire_id)
-        serializer.save(expediteur=user, destinataire=destinataire)
+        
+        message = serializer.save(expediteur=user, destinataire=destinataire)
+        
+        # ✅ Notification interne
         Notification.objects.create(
             destinataire=destinataire,
             objet=f"Nouveau message: {serializer.validated_data.get('sujet', 'Sans sujet')}",
             message=f"Message de {user.email}: {serializer.validated_data.get('contenu', '')[:100]}",
             offre_liee=None
         )
-    
+        
+        # ✅ ENVOI D'EMAIL AU DESTINATAIRE
+        try:
+            sender_name = f"{user.first_name} {user.last_name}".strip() or user.email
+            EmailService.send_new_message_notification(
+                recipient_email=destinataire.email,
+                sender_name=sender_name,
+                subject=serializer.validated_data.get('sujet', 'Sans sujet'),
+                message_preview=serializer.validated_data.get('contenu', '')[:200]
+            )
+        except Exception as e:
+            logger.error(f"❌ Erreur envoi email message: {e}")
+
     @action(detail=True, methods=['post'], url_path='marquer-lu')
     def marquer_lu(self, request, pk=None):
         message = self.get_object()
@@ -644,6 +729,60 @@ class MessageViewSet(viewsets.ModelViewSet):
         message.est_lu = True
         message.save()
         return Response({'status': 'Message marqué comme lu', 'est_lu': True}, status=status.HTTP_200_OK)
+    
+    # ✅ NOUVELLE ACTION : Répondre à un message (admin uniquement)
+    @action(detail=True, methods=['post'], url_path='repondre', permission_classes=[permissions.IsAdminUser])
+    def repondre(self, request, pk=None):
+        """Permet à l'administrateur de répondre à un message"""
+        try:
+            message_original = self.get_object()
+        except Message.DoesNotExist:
+            return Response({'error': 'Message non trouvé'}, status=status.HTTP_404_NOT_FOUND)
+        
+        contenu = request.data.get('contenu', '').strip()
+        if not contenu:
+            return Response({'error': 'Contenu requis'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # ✅ Créer la réponse
+        reponse = Message.objects.create(
+            expediteur=request.user,
+            destinataire=message_original.expediteur,
+            sujet=f"RE: {message_original.sujet}",
+            contenu=contenu,
+            est_reponse=True,
+            reponse_contenu=contenu,
+            message_original=message_original
+        )
+        
+        # ✅ Marquer le message original comme lu
+        message_original.est_lu = True
+        message_original.save()
+        
+        # ✅ Notification interne pour l'expéditeur original (l'expert)
+        Notification.objects.create(
+            destinataire=message_original.expediteur,
+            objet="Réponse à votre message",
+            message=f"L'administrateur a répondu à votre message: {contenu[:200]}",
+            offre_liee=None
+        )
+        
+        # ✅ ENVOI D'EMAIL À L'EXPERT
+        try:
+            admin_name = f"{request.user.first_name} {request.user.last_name}".strip() or "L'administrateur"
+            EmailService.send_new_message_notification(
+                recipient_email=message_original.expediteur.email,
+                sender_name=admin_name,
+                sujet=f"RE: {message_original.sujet}",
+                message_preview=contenu[:200]
+            )
+            logger.info(f"✅ Email de réponse envoyé à {message_original.expediteur.email}")
+        except Exception as e:
+            logger.error(f"❌ Erreur envoi email réponse: {e}")
+        
+        return Response({
+            'message': 'Réponse envoyée',
+            'reponse': MessageSerializer(reponse).data
+        }, status=status.HTTP_201_CREATED)
     
     @action(detail=False, methods=['post'], url_path='envoyer-admin')
     def envoyer_a_admin(self, request):
@@ -654,14 +793,43 @@ class MessageViewSet(viewsets.ModelViewSet):
         contenu = request.data.get('contenu', '')
         if not sujet or not contenu:
             return Response({'error': 'Sujet et contenu requis'}, status=400)
-        message = Message.objects.create(expediteur=request.user, destinataire=admin, sujet=sujet, contenu=contenu)
-        Notification.objects.create(destinataire=admin, objet=f"Nouveau message de {request.user.email}", message=contenu[:200], offre_liee=None)
+        
+        message = Message.objects.create(
+            expediteur=request.user, 
+            destinataire=admin, 
+            sujet=sujet, 
+            contenu=contenu
+        )
+        
+        # ✅ Notification interne pour l'admin
+        Notification.objects.create(
+            destinataire=admin, 
+            objet=f"Nouveau message de {request.user.email}", 
+            message=contenu[:200], 
+            offre_liee=None
+        )
+        
+        # ✅ ENVOI D'EMAIL À L'ADMIN
+        try:
+            sender_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.email
+            EmailService.send_new_message_notification(
+                recipient_email=admin.email,
+                sender_name=sender_name,
+                subject=sujet,
+                message_preview=contenu[:200]
+            )
+        except Exception as e:
+            logger.error(f"❌ Erreur envoi email à admin: {e}")
+        
         return Response(MessageSerializer(message).data, status=201)
     
     @action(detail=False, methods=['get'], url_path='non-lus')
     def messages_non_lus(self, request):
         messages = Message.objects.filter(destinataire=request.user, est_lu=False)
-        return Response({'count': messages.count(), 'results': MessageSerializer(messages, many=True).data})
+        return Response({
+            'count': messages.count(), 
+            'results': MessageSerializer(messages, many=True).data
+        })
     
     @action(detail=False, methods=['get'], url_path='conversation-admin')
     def conversation_avec_admin(self, request):
@@ -671,8 +839,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         messages = Message.objects.filter(
             Q(expediteur=request.user, destinataire=admin) | Q(expediteur=admin, destinataire=request.user)
         ).order_by('date_envoi')
-        return Response(MessageSerializer(messages, many=True).data) 
-
+        return Response(MessageSerializer(messages, many=True).data)
 
 # =============================================================================
 # ADMIN DASHBOARD & STATS
@@ -815,50 +982,102 @@ class AdminSourceViewSet(viewsets.ModelViewSet):
     serializer_class = SourceScrapingSerializer
     permission_classes = [IsAdmin]
     queryset = SourceScraping.objects.all()
-    
+    pagination_class = None 
     @action(detail=False, methods=['post'], url_path='run')
     def run_scraping(self, request):
+        import time
+        start_time = time.time()
+    
         try:
             source_ids = request.data.get('source_ids', [])
+        
+            print(f"\n{'='*60}")
+            print(f"🚀 DÉBUT DU SCRAPPING - {len(source_ids)} source(s)")
+            print(f"{'='*60}")
+        
             if not isinstance(source_ids, list):
                 return Response({'error': 'source_ids doit être une liste'}, status=status.HTTP_400_BAD_REQUEST)
             if not all(isinstance(i, int) for i in source_ids):
                 return Response({'error': 'source_ids doit contenir des identifiants entiers'}, status=status.HTTP_400_BAD_REQUEST)
             if not source_ids:
                 return Response({'error': 'Aucune source sélectionnée'}, status=status.HTTP_400_BAD_REQUEST)
-            
+        
             results = []
-            for source_id in source_ids:
+            for idx, source_id in enumerate(source_ids, 1):
+                source_start = time.time()
+                print(f"\n[{idx}/{len(source_ids)}] 🔍 Scraping source ID {source_id}...")
+            
                 try:
                     source = SourceScraping.objects.filter(id=source_id, est_actif=True).first()
                     if not source:
-                        results.append({'source_id': source_id, 'status': 'skipped', 'reason': 'Source inactive ou inexistante'})
+                        print(f"  ⚠️ Source {source_id} inactive ou inexistante")
+                        results.append({
+                            'source_id': source_id, 
+                            'status': 'skipped', 
+                            'reason': 'Source inactive ou inexistante'
+                        })
                         continue
-                    
+                
+                    print(f"  📡 Source: {source.nom}")
+                    print(f"  🌐 URL: {source.url_racine}")
+                
+                    # Lancer le scraping
                     result = run_scheduled_scraping_task(source_id=source_id)
+                
+                    source.last_scraped = timezone.now()
+                    source.save(update_fields=['last_scraped'])
+                
+                    new_count = result.get('new', 0) if isinstance(result, dict) else 0
+                    updated_count = result.get('updated', 0) if isinstance(result, dict) else 0
+                
+                    elapsed = time.time() - source_start
+                    print(f"  ✅ Terminé en {elapsed:.2f}s")
+                    print(f"     - Nouvelles offres: {new_count}")
+                    print(f"     - Offres mises à jour: {updated_count}")
+                
                     results.append({
                         'source_id': source_id,
                         'status': 'success',
-                        'new': result.get('new', 0) if isinstance(result, dict) else 0,
-                        'updated': result.get('updated', 0) if isinstance(result, dict) else 0,
-                        'source_name': source.nom
+                        'new': new_count,
+                        'updated': updated_count,
+                        'source_name': source.nom,
+                        'duration': round(elapsed, 2)
                     })
-                    source.last_scraped = timezone.now()
-                    source.save(update_fields=['last_scraped'])
+                
                 except Exception as task_err:
-                    print(f"❌ Erreur scraping source {source_id}: {task_err}")
+                    elapsed = time.time() - source_start
+                    print(f"  ❌ Erreur après {elapsed:.2f}s: {task_err}")
                     print(traceback.format_exc())
-                    results.append({'source_id': source_id, 'status': 'error', 'error': str(task_err)})
-            
+                    results.append({
+                        'source_id': source_id, 
+                        'status': 'error', 
+                        'error': str(task_err)
+                    })
+        
+            total_duration = time.time() - start_time
             success_count = len([r for r in results if r['status'] == 'success'])
             error_count = len([r for r in results if r['status'] == 'error'])
             skipped_count = len([r for r in results if r['status'] == 'skipped'])
-            
+        
+            print(f"\n{'='*60}")
+            print(f"🏁 FIN DU SCRAPPING en {total_duration:.2f}s")
+            print(f"   ✅ Succès: {success_count}")
+            print(f"   ❌ Erreurs: {error_count}")
+            print(f"   ⚠️ Ignorées: {skipped_count}")
+            print(f"{'='*60}\n")
+        
             return Response({
-                'message': f'Scraping terminé: {success_count} succès, {error_count} erreurs, {skipped_count} ignorées',
+                'message': f'Scraping terminé en {total_duration:.2f}s: {success_count} succès, {error_count} erreurs, {skipped_count} ignorées',
                 'results': results,
-                'summary': {'total': len(source_ids), 'success': success_count, 'errors': error_count, 'skipped': skipped_count}
+                'summary': {
+                    'total': len(source_ids), 
+                    'success': success_count, 
+                    'errors': error_count, 
+                    'skipped': skipped_count,
+                    'duration': round(total_duration, 2)
+                }
             }, status=status.HTTP_200_OK)
+        
         except Exception as e:
             print(f"❌ ERREUR CRITIQUE run_scraping: {e}")
             print(traceback.format_exc())
@@ -1092,14 +1311,29 @@ class AdminSuggestionOffreViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
     
+    
     def perform_create(self, serializer):
         suggestion = serializer.save()
+        
+        # ✅ Notification interne
         Notification.objects.create(
             destinataire=suggestion.expert.utilisateur,
             offre_liee=suggestion.offre,
             objet='Nouvelle suggestion d\'offre',
             message=f'Un administrateur vous suggère: {suggestion.offre.titre[:100]}'
         )
+        
+        # ✅ ENVOI D'EMAIL À L'EXPERT
+        try:
+            expert_name = f"{suggestion.expert.utilisateur.first_name} {suggestion.expert.utilisateur.last_name}".strip()
+            EmailService.send_suggestion_notification(
+                expert_email=suggestion.expert.utilisateur.email,
+                expert_name=expert_name,
+                offre_titre=suggestion.offre.titre,
+                admin_name=f"{self.request.user.first_name} {self.request.user.last_name}".strip() or "L'administrateur"
+            )
+        except Exception as e:
+            logger.error(f"❌ Erreur envoi email suggestion: {e}")
     
     @action(detail=True, methods=['post'], url_path='envoyer')
     def envoyer_suggestion(self, request, pk=None):
@@ -1126,52 +1360,6 @@ class AdminSuggestionOffreViewSet(viewsets.ModelViewSet):
             change_message='Suggestion supprimée par admin'
         )
         return Response({'message': 'Suggestion supprimée'}, status=status.HTTP_200_OK)
-
-# =============================================================================
-
-# offres/views.py - Mettre à jour AdminReponseMessageView
-
-class AdminReponseMessageView(APIView):
-    """Permet à l'administrateur de répondre à un message"""
-    permission_classes = [permissions.IsAdminUser]
-    
-    def post(self, request, message_id):
-        try:
-            message_original = Message.objects.get(id=message_id)
-        except Message.DoesNotExist:
-            return Response({'error': 'Message non trouvé'}, status=status.HTTP_404_NOT_FOUND)
-        
-        contenu = request.data.get('contenu', '').strip()
-        if not contenu:
-            return Response({'error': 'Contenu requis'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # ✅ Créer la réponse avec les nouveaux champs
-        reponse = Message.objects.create(
-            expediteur=request.user,
-            destinataire=message_original.expediteur,
-            sujet=f"RE: {message_original.sujet}",
-            contenu=contenu,
-            est_reponse=True,
-            reponse_contenu=contenu,
-            message_original=message_original
-        )
-        
-        # ✅ Marquer le message original comme lu
-        message_original.est_lu = True
-        message_original.save()
-        
-        # Créer une notification pour le destinataire
-        Notification.objects.create(
-            destinataire=message_original.expediteur,
-            objet="Réponse à votre message",
-            message=f"L'administrateur a répondu à votre message: {contenu[:200]}",
-            offre_liee=None
-        )
-        
-        return Response({
-            'message': 'Réponse envoyée',
-            'reponse': MessageSerializer(reponse).data
-        }, status=status.HTTP_201_CREATED)
 
 # =============================================================================
 # ADMIN - EFFACER L'HISTORIQUE
@@ -1346,9 +1534,6 @@ class SourceScrapingViewSet(viewsets.ModelViewSet):
                 {"error": str(e), "details": serializer.errors if 'serializer' in locals() else None},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-
-# offres/views.py (ajouter à la fin)
 
 
 

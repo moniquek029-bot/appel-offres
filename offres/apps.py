@@ -1,5 +1,4 @@
 from django.apps import AppConfig
-import offres.tasks  # Import explicite pour enregistrer les tâches Celery de l'app 'offres'
 
 
 class OffresConfig(AppConfig):
@@ -7,5 +6,14 @@ class OffresConfig(AppConfig):
     name = 'offres'
 
     def ready(self):
-        import offres.signals  # Import des signaux
-        pass
+        # ✅ Import des tâches Celery (après chargement des apps)
+        try:
+            import offres.tasks  # noqa: F401
+        except ImportError as e:
+            print(f"⚠️ Erreur import tasks: {e}")
+        
+        # ✅ Import des signaux
+        try:
+            import offres.signals  # noqa: F401
+        except ImportError as e:
+            print(f"️ Erreur import signals: {e}")

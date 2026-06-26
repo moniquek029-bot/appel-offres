@@ -4,136 +4,461 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
-from offres.views import TelechargerPDFView
-
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
-
-from rest_framework.routers import DefaultRouter
-
-# ✅ Imports des vues
 from offres.views import (
-    RegisterView, CustomTokenObtainPairView, CustomTokenRefreshView,
-    LogoutView, UserProfileView, ChangePasswordView,
+    # Auth
+    RegisterView,
+    CustomTokenObtainPairView,
+    CustomTokenRefreshView,
+    LogoutView,
+    
+    # User
+    UserProfileView,
+    ChangePasswordView,
+    
+    # Offres
     AppelOffreViewSet,
-    ProfilExpertViewSet, BureauEtudeViewSet, CritereRechercheViewSet,
-    ExpertDashboardView, BureauDashboardView,
-    NewsletterSubscriptionView,
+    OffresPubliquesView,
+    TelechargerPDFView,
+    
+    # Expert
+    ExpertDashboardView,
+    ProfilExpertViewSet,
+    CritereRechercheViewSet,
+    SuggestionExpertViewSet,
+    
+    # Bureau
+    BureauDashboardView,
+    BureauEtudeViewSet,
+    
+    # Messages & Notifications
     MessageViewSet,
     NotificationUserViewSet,
+    
+    # Admin
     AdminDashboardView,
+    AdminSourceViewSet,
+    AdminSourcesRunView,
     AdminUtilisateurViewSet,
     AdminConnexionHistoriqueView,
     AdminSuggestionOffreViewSet,
-    AdminReponseMessageView,
-    OffresPubliquesView,
-    AdminSourceViewSet,
     AdminHistoryView,
-    AdminSourcesRunView,
-    SuggestionExpertViewSet,
-    # ✅ Fonctions de réinitialisation de mot de passe
+    
+    # Newsletter
+    NewsletterSubscriptionView,
+    
+    # Password reset
     password_reset_request,
     password_reset_confirm,
     password_reset_validate_token,
     admin_user_details,
+    admin_list_experts_with_profiles,
+    
+    # ❌ AdminReponseMessageView SUPPRIMÉ (maintenant dans MessageViewSet)
 )
-
-# =============================================================================
-# ROUTER DRF
-# =============================================================================
-router = DefaultRouter()
-
-# Routes existantes
-router.register(r'offres', AppelOffreViewSet, basename='offres')
-router.register(r'expert/profil', ProfilExpertViewSet, basename='expert-profil')
-router.register(r'bureau/profil', BureauEtudeViewSet, basename='bureau-profil')
-router.register(r'expert/criteres', CritereRechercheViewSet, basename='criteres')
-router.register(r'messages', MessageViewSet, basename='messages')
-router.register(r'admin/utilisateurs', AdminUtilisateurViewSet, basename='admin-utilisateurs')
-router.register(r'admin/suggestions', AdminSuggestionOffreViewSet, basename='admin-suggestions')
-router.register(r'admin/sources', AdminSourceViewSet, basename='admin-sources')
-router.register(r'notifications', NotificationUserViewSet, basename='notification')
-# =============================================================================
-# URL PATTERNS
-# =============================================================================
 urlpatterns = [
+    # Django admin
     path('admin/', admin.site.urls),
     
-    # 🔐 JWT
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # =========================================================================
+    # AUTHENTIFICATION (avec alias pour compatibilité frontend)
+    # =========================================================================
+    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/register/', RegisterView.as_view(), name='auth-register'),  # ✅ ALIAS
     
-    # === AUTH ===
-    path('api/auth/register/', RegisterView.as_view(), name='register'),
-    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='login'),
-    path('api/auth/logout/', LogoutView.as_view(), name='logout'),
-    path('api/auth/profile/', UserProfileView.as_view(), name='profile'),
-    path('api/auth/change-password/', ChangePasswordView.as_view(), name='change_password'),
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='auth-login'),  # ✅ ALIAS
     
-    # ✅ RÉCUPÉRATION DE MOT DE PASSE
-    path('api/auth/password-reset/', password_reset_request, name='password-reset-request'),
-    path('api/auth/password-reset/confirm/', password_reset_confirm, name='password-reset-confirm'),
-    path('api/auth/password-reset/validate/<str:token>/', password_reset_validate_token, name='password-reset-validate'),
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='auth-refresh'),  # ✅ ALIAS
     
-    # === DASHBOARDS ===
-    path('api/expert/dashboard/', ExpertDashboardView.as_view(), name='expert_dashboard'),
-    path('api/bureau/dashboard/', BureauDashboardView.as_view(), name='bureau_dashboard'),
-
-    # === EXPERT - SUGGESTIONS ===
-    path('api/expert/suggestions/', SuggestionExpertViewSet.as_view({'get': 'list'}), name='expert-suggestions'),
-    path('api/expert/suggestions/<int:pk>/', SuggestionExpertViewSet.as_view({'get': 'retrieve'}), name='expert-suggestion-detail'),
-    path('api/expert/suggestions/<int:pk>/repondre/', SuggestionExpertViewSet.as_view({'post': 'repondre'}), name='expert-suggestion-repondre'),
-    path('api/expert/suggestions/<int:pk>/marquer-consultee/', SuggestionExpertViewSet.as_view({'post': 'marquer_consultee'}), name='expert-suggestion-marquer-consultee'),
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth-logout'),  # ✅ ALIAS
     
-    # === ADMIN DASHBOARD ===
+    # =========================================================================
+    # PROFIL UTILISATEUR
+    # =========================================================================
+    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    
+    # ... reste du fichier inchangé ...urlpatterns = [
+    # Django admin
+    path('admin/', admin.site.urls),
+    
+    # =========================================================================
+    # AUTHENTIFICATION (avec alias pour compatibilité frontend)
+    # =========================================================================
+    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/register/', RegisterView.as_view(), name='auth-register'),  # ✅ ALIAS
+    
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='auth-login'),  # ✅ ALIAS
+    
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='auth-refresh'),  # ✅ ALIAS
+    
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth-logout'),  # ✅ ALIAS
+    
+    # =========================================================================
+    # PROFIL UTILISATEUR
+    # =========================================================================
+    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    
+    # ... reste du fichier inchangé ...urlpatterns = [
+    # Django admin
+    path('admin/', admin.site.urls),
+    
+    # =========================================================================
+    # AUTHENTIFICATION (avec alias pour compatibilité frontend)
+    # =========================================================================
+    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/register/', RegisterView.as_view(), name='auth-register'),  # ✅ ALIAS
+    
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='auth-login'),  # ✅ ALIAS
+    
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='auth-refresh'),  # ✅ ALIAS
+    
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth-logout'),  # ✅ ALIAS
+    
+    # =========================================================================
+    # PROFIL UTILISATEUR
+    # =========================================================================
+    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    
+    # ... reste du fichier inchangé ...urlpatterns = [
+    # Django admin
+    path('admin/', admin.site.urls),
+    
+    # =========================================================================
+    # AUTHENTIFICATION (avec alias pour compatibilité frontend)
+    # =========================================================================
+    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/register/', RegisterView.as_view(), name='auth-register'),  # ✅ ALIAS
+    
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='auth-login'),  # ✅ ALIAS
+    
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='auth-refresh'),  # ✅ ALIAS
+    
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth-logout'),  # ✅ ALIAS
+    
+    # =========================================================================
+    # PROFIL UTILISATEUR
+    # =========================================================================
+    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    
+    # ... reste du fichier inchangé ...urlpatterns = [
+    # Django admin
+    path('admin/', admin.site.urls),
+    
+    # =========================================================================
+    # AUTHENTIFICATION (avec alias pour compatibilité frontend)
+    # =========================================================================
+    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/register/', RegisterView.as_view(), name='auth-register'),  # ✅ ALIAS
+    
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='auth-login'),  # ✅ ALIAS
+    
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='auth-refresh'),  # ✅ ALIAS
+    
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth-logout'),  # ✅ ALIAS
+    
+    # =========================================================================
+    # PROFIL UTILISATEUR
+    # =========================================================================
+    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    
+    # ... reste du fichier inchangé ...urlpatterns = [
+    # Django admin
+    path('admin/', admin.site.urls),
+    
+    # =========================================================================
+    # AUTHENTIFICATION (avec alias pour compatibilité frontend)
+    # =========================================================================
+    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/register/', RegisterView.as_view(), name='auth-register'),  # ✅ ALIAS
+    
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='auth-login'),  # ✅ ALIAS
+    
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='auth-refresh'),  # ✅ ALIAS
+    
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth-logout'),  # ✅ ALIAS
+    
+    # =========================================================================
+    # PROFIL UTILISATEUR
+    # =========================================================================
+    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    
+    # ... reste du fichier inchangé ...urlpatterns = [
+    # Django admin
+    path('admin/', admin.site.urls),
+    
+    # =========================================================================
+    # AUTHENTIFICATION (avec alias pour compatibilité frontend)
+    # =========================================================================
+    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/register/', RegisterView.as_view(), name='auth-register'),  # ✅ ALIAS
+    
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='auth-login'),  # ✅ ALIAS
+    
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='auth-refresh'),  # ✅ ALIAS
+    
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth-logout'),  # ✅ ALIAS
+    
+    # =========================================================================
+    # PROFIL UTILISATEUR
+    # =========================================================================
+    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    
+    # ... reste du fichier inchangé ...urlpatterns = [
+    # Django admin
+    path('admin/', admin.site.urls),
+    
+    # =========================================================================
+    # AUTHENTIFICATION (avec alias pour compatibilité frontend)
+    # =========================================================================
+    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/register/', RegisterView.as_view(), name='auth-register'),  # ✅ ALIAS
+    
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='auth-login'),  # ✅ ALIAS
+    
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='auth-refresh'),  # ✅ ALIAS
+    
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth-logout'),  # ✅ ALIAS
+    
+    # =========================================================================
+    # PROFIL UTILISATEUR
+    # =========================================================================
+    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    
+    # ... reste du fichier inchangé ...urlpatterns = [
+    # Django admin
+    path('admin/', admin.site.urls),
+    
+    # =========================================================================
+    # AUTHENTIFICATION (avec alias pour compatibilité frontend)
+    # =========================================================================
+    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/register/', RegisterView.as_view(), name='auth-register'),  # ✅ ALIAS
+    
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='auth-login'),  # ✅ ALIAS
+    
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='auth-refresh'),  # ✅ ALIAS
+    
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth-logout'),  # ✅ ALIAS
+    
+    # =========================================================================
+    # PROFIL UTILISATEUR
+    # =========================================================================
+    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    
+    # ... reste du fichier inchangé ...
+    # =========================================================================
+    # PROFIL UTILISATEUR
+    # =========================================================================
+    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
+    
+    # =========================================================================
+    # APPELS D'OFFRES
+    # =========================================================================
+    path('api/offres/', AppelOffreViewSet.as_view({'get': 'list'}), name='offre-list'),
+    path('api/offres/<int:pk>/', AppelOffreViewSet.as_view({'get': 'retrieve'}), name='offre-detail'),
+    path('api/offres/recent/', AppelOffreViewSet.as_view({'get': 'recent_offres'}), name='offre-recent'),
+    path('api/offres/create-manuel/', AppelOffreViewSet.as_view({'post': 'create_manuel'}), name='offre-create-manuel'),
+    path('api/offres/<int:pk>/download-pdf/', AppelOffreViewSet.as_view({'get': 'download_pdf'}), name='offre-download-pdf'),
+    path('api/offres-publiques/', OffresPubliquesView.as_view(), name='offres-publiques'),
+    path('api/offres/<int:offre_id>/download/', TelechargerPDFView.as_view(), name='telecharger-pdf'),
+    
+    # =========================================================================
+    # ESPACE EXPERT
+    # =========================================================================
+    path('api/expert/dashboard/', ExpertDashboardView.as_view(), name='expert-dashboard'),
+    path('api/expert/profil/', ProfilExpertViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    }), name='expert-profil'),
+    path('api/expert/profil/update/', ProfilExpertViewSet.as_view({
+        'put': 'update_profile',
+        'patch': 'update_profile'
+    }), name='expert-profil-update'),
+    path('api/expert/profil/upload-cv/', ProfilExpertViewSet.as_view({
+        'post': 'upload_cv'
+    }), name='expert-upload-cv'),
+    path('api/expert/criteres/', CritereRechercheViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    }), name='expert-criteres'),
+    path('api/expert/criteres/<int:pk>/', CritereRechercheViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update',
+        'delete': 'destroy'
+    }), name='expert-critere-detail'),
+    path('api/expert/suggestions/', SuggestionExpertViewSet.as_view({
+        'get': 'list'
+    }), name='expert-suggestions-list'),
+    path('api/expert/suggestions/<int:pk>/', SuggestionExpertViewSet.as_view({
+        'get': 'retrieve'
+    }), name='expert-suggestion-detail'),
+    path('api/expert/suggestions/<int:pk>/repondre/', SuggestionExpertViewSet.as_view({
+        'post': 'repondre'
+    }), name='expert-suggestion-repondre'),
+    path('api/expert/suggestions/<int:pk>/marquer-consultee/', SuggestionExpertViewSet.as_view({
+        'post': 'marquer_consultee'
+    }), name='expert-suggestion-marquer-consultee'),
+    
+    # =========================================================================
+    # ESPACE BUREAU
+    # =========================================================================
+    path('api/bureau/dashboard/', BureauDashboardView.as_view(), name='bureau-dashboard'),
+    path('api/bureau/profil/', BureauEtudeViewSet.as_view({
+        'get': 'my_profile'
+    }), name='bureau-profil'),
+    path('api/bureau/profil/update/', BureauEtudeViewSet.as_view({
+        'put': 'update_profile'
+    }), name='bureau-profil-update'),
+    
+    # =========================================================================
+    # MESSAGES & NOTIFICATIONS
+    # =========================================================================
+    path('api/messages/', MessageViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    }), name='message-list'),
+    path('api/messages/<int:pk>/', MessageViewSet.as_view({
+        'get': 'retrieve',
+        'delete': 'destroy'
+    }), name='message-detail'),
+    path('api/messages/<int:pk>/marquer-lu/', MessageViewSet.as_view({
+        'post': 'marquer_lu'
+    }), name='message-marquer-lu'),
+    path('api/messages/<int:pk>/repondre/', MessageViewSet.as_view({
+        'post': 'repondre'
+    }), name='message-repondre'),  # ✅ NOUVELLE ROUTE
+    path('api/messages/envoyer-admin/', MessageViewSet.as_view({
+        'post': 'envoyer_a_admin'
+    }), name='message-envoyer-admin'),
+    path('api/messages/non-lus/', MessageViewSet.as_view({
+        'get': 'messages_non_lus'
+    }), name='messages-non-lus'),
+    path('api/messages/conversation-admin/', MessageViewSet.as_view({
+        'get': 'conversation_avec_admin'
+    }), name='conversation-admin'),
+    
+    path('api/notifications/', NotificationUserViewSet.as_view({
+        'get': 'list'
+    }), name='notification-list'),
+    path('api/notifications/<int:pk>/marquer-lue/', NotificationUserViewSet.as_view({
+        'post': 'marquer_lue'
+    }), name='notification-marquer-lue'),
+    
+    # =========================================================================
+    # ADMIN DASHBOARD
+    # =========================================================================
     path('api/admin/dashboard/', AdminDashboardView.as_view(), name='admin-dashboard'),
-    path('api/admin/dashboard/stats/', AdminDashboardView.as_view(), name='admin-dashboard-stats'),
     
-    # === ADMIN - UTILISATEURS ===
-    # ✅ URLS STATIQUES EN PREMIER
-    path('api/admin/utilisateurs/', AdminUtilisateurViewSet.as_view({'get': 'list', 'post': 'create'}), name='admin-utilisateurs-list'),
-    path('api/admin/experts/', AdminUtilisateurViewSet.as_view({'get': 'list'}), name='admin-experts'),
+    # Sources de scraping
+    path('api/admin/sources/', AdminSourceViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    }), name='admin-source-list'),
+    path('api/admin/sources/<int:pk>/', AdminSourceViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update',
+        'delete': 'destroy'
+    }), name='admin-source-detail'),
+    path('api/admin/sources/run/', AdminSourceViewSet.as_view({
+        'post': 'run_scraping'
+    }), name='admin-source-run'),
+    path('api/admin/sources/run-alt/', AdminSourcesRunView.as_view(), name='admin-source-run-alt'),
     
-    # ✅ URLS DYNAMIQUES APRÈS
+    # Utilisateurs
+    path('api/admin/utilisateurs/', AdminUtilisateurViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    }), name='admin-utilisateur-list'),
+    path('api/admin/utilisateurs/<int:pk>/', AdminUtilisateurViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update',
+        'delete': 'destroy'
+    }), name='admin-utilisateur-detail'),
+    path('api/admin/utilisateurs/<int:pk>/toggle-active/', AdminUtilisateurViewSet.as_view({
+        'patch': 'toggle_active'
+    }), name='admin-utilisateur-toggle-active'),
+    path('api/admin/utilisateurs/<int:pk>/force-delete/', AdminUtilisateurViewSet.as_view({
+        'delete': 'force_delete'
+    }), name='admin-utilisateur-force-delete'),
     path('api/admin/utilisateurs/<int:user_id>/details/', admin_user_details, name='admin-user-details'),
-    path('api/admin/utilisateurs/<int:pk>/toggle-active/', AdminUtilisateurViewSet.as_view({'patch': 'toggle_active'}), name='admin-user-toggle'),
-    path('api/admin/utilisateurs/<int:pk>/force-delete/', AdminUtilisateurViewSet.as_view({'delete': 'force_delete'}), name='admin-user-delete'),
+    path('api/admin/experts/', admin_list_experts_with_profiles, name='admin-list-experts'),
     
-    # === ADMIN - SOURCES ===
-    # ✅ URLS STATIQUES EN PREMIER
-    path('api/admin/sources/', AdminSourceViewSet.as_view({'get': 'list', 'post': 'create'}), name='admin-sources-list'),
-    path('api/admin/sources/run/', AdminSourceViewSet.as_view({'post': 'run_scraping'}), name='admin-sources-run'),
+    # Suggestions
+    path('api/admin/suggestions/', AdminSuggestionOffreViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    }), name='admin-suggestion-list'),
+    path('api/admin/suggestions/<int:pk>/', AdminSuggestionOffreViewSet.as_view({
+        'get': 'retrieve',
+        'delete': 'destroy'
+    }), name='admin-suggestion-detail'),
+    path('api/admin/suggestions/<int:pk>/envoyer/', AdminSuggestionOffreViewSet.as_view({
+        'post': 'envoyer_suggestion'
+    }), name='admin-suggestion-envoyer'),
+    path('api/admin/suggestions/<int:pk>/force-delete/', AdminSuggestionOffreViewSet.as_view({
+        'delete': 'force_delete'
+    }), name='admin-suggestion-force-delete'),
     
-    # ✅ URLS DYNAMIQUES APRÈS
-    path('api/admin/sources/<int:pk>/', AdminSourceViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='admin-sources-detail'),
-    
-    # === ADMIN - HISTORIQUE ===
-    path('api/admin/historique/', AdminHistoryView.as_view(), name='admin-history'),
-    path('api/admin/historique/clear/', AdminHistoryView.as_view(), name='admin-history-clear'),
-    
-    # === ADMIN - SUGGESTIONS ===
-    # ✅ URLS STATIQUES EN PREMIER
-    path('api/admin/suggestions/', AdminSuggestionOffreViewSet.as_view({'get': 'list', 'post': 'create'}), name='admin-suggestions-list'),
-    
-    # ✅ URLS DYNAMIQUES APRÈS
-    path('api/admin/suggestions/<int:pk>/force-delete/', AdminSuggestionOffreViewSet.as_view({'delete': 'force_delete'}), name='admin-suggestion-delete'),
-    
-    # === ADMIN - CONNEXIONS & MESSAGES ===
+    # Historique
+    path('api/admin/historique/', AdminHistoryView.as_view(), name='admin-historique'),
+    path('api/admin/historique/clear/', AdminHistoryView.as_view(), name='admin-historique-clear'),
     path('api/admin/connexions/', AdminConnexionHistoriqueView.as_view(), name='admin-connexions'),
-    path('api/admin/messages/<int:message_id>/reply/', AdminReponseMessageView.as_view(), name='admin-reply-message'),
     
-    # === PUBLIC ===
-    path('api/newsletter/subscribe/', NewsletterSubscriptionView.as_view(), name='newsletter_subscribe'),
-    path('api/offres/publiques/', OffresPubliquesView.as_view(), name='offres-publiques'),
-
-    # PDF
-    path('api/offres/<int:offre_id>/download-pdf/', TelechargerPDFView.as_view(), name='download-pdf'),
+    # ❌ AdminReponseMessageView SUPPRIMÉ - maintenant : POST /api/messages/{id}/repondre/
     
-    # === ROUTER (DOIT ÊTRE EN DERNIER) ===
-    path('api/', include(router.urls)),
+    # =========================================================================
+    # NEWSLETTER
+    # =========================================================================
+    path('api/newsletter/subscribe/', NewsletterSubscriptionView.as_view(), name='newsletter-subscribe'),
+    
+    # =========================================================================
+    # PASSWORD RESET
+    # =========================================================================
+    path('api/password-reset/', password_reset_request, name='password-reset'),
+    path('api/password-reset/confirm/', password_reset_confirm, name='password-reset-confirm'),
+    path('api/password-reset/validate/<str:token>/', password_reset_validate_token, name='password-reset-validate'),
 ]
 
+# Servir les fichiers media en développement
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

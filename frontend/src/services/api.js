@@ -1,4 +1,4 @@
-// src/services/api.js - Version finale avec anti-cache + pagination
+// src/services/api.js - Version CORRIGÉE
 
 import axios from 'axios';
 
@@ -6,9 +6,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api
 
 const api = axios.create({
   baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8000/api',
-
   headers: { 'Content-Type': 'application/json' },
-  // ✅ Désactiver le cache Axios par défaut
   cache: 'no-store',
 });
 
@@ -24,24 +22,20 @@ const processQueue = (error, token = null) => {
 };
 
 // =============================================================================
-// INTERCEPTEUR REQUEST - Ajout du token + anti-cache pour GET
+// INTERCEPTEUR REQUEST
 // =============================================================================
 api.interceptors.request.use(
   async (config) => {
-    // ✅ Ajout du token d'authentification
     const token = localStorage.getItem('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    // ✅ ANTI-CACHE : Ajouter un timestamp aux requêtes GET pour forcer le re-fetch
     if (config.method === 'get' || config.method === 'GET') {
       config.params = {
         ...config.params,
-        _t: Date.now()  // ← Timestamp unique à chaque requête
+        _t: Date.now()
       };
-      // Log pour debug (à retirer en production si besoin)
-      // console.log(`GET ${config.url} avec anti-cache: _t=${config.params._t}`);
     }
     
     return config;
@@ -50,7 +44,7 @@ api.interceptors.request.use(
 );
 
 // =============================================================================
-// INTERCEPTEUR RESPONSE - Gestion du refresh token JWT
+// INTERCEPTEUR RESPONSE
 // =============================================================================
 api.interceptors.response.use(
   (response) => response,
@@ -66,7 +60,6 @@ api.interceptors.response.use(
         isRefreshing = true;
         
         try {
-          // ✅ URL CORRIGÉE : token/refresh/ au lieu de auth/token/refresh/
           const { data } = await axios.post(
             `${API_BASE_URL}token/refresh/`,
             { refresh: refreshToken }
@@ -108,35 +101,39 @@ api.interceptors.response.use(
 );
 
 // =============================================================================
-// FONCTIONS API
+// ✅ FONCTION searchOffres CORRIGÉE
 // =============================================================================
-
-// ✅ RECHERCHE DES OFFRES AVEC PAGINATION + ANTI-CACHE
 export const searchOffres = async ({ 
   keyword = '', 
   pays = '', 
   max_days = '', 
   domaine = '', 
   structure = '', 
-  date_debut='',
-  date_fin='',
+  date_publication = '',  // ✅ Nom correct (pas date_debut)
+  date_cloture = '',      // ✅ Nom correct (pas date_fin)
   page = 1 
 } = {}) => {
   const params = new URLSearchParams();
-  if (keyword && keyword.trim()) params.append('search', keyword.trim());
+  
+  if (keyword && keyword.trim()) params.append('keyword', keyword.trim());
   if (pays) params.append('pays', pays);
   if (max_days) params.append('max_days', max_days);
-  if (domaine) params.append('categorie', domaine);
-  if (structure) params.append('organisme', structure);
-  if (date_debut) params.append('date_publication_gte', date_debut);
-  if (date_fin) params.append('date_publication_lte', date_fin);
+  if (domaine) params.append('domaine', domaine);  // ✅ Pas 'categorie'
+  if (structure) params.append('structure', structure);  // ✅ Pas 'organisme'
+  
+  // ✅ CORRECTION CRITIQUE : Envoyer les bons noms de paramètres
+  if (date_publication) params.append('date_publication', date_publication);
+  if (date_cloture) params.append('date_cloture', date_cloture);
+  
   if (page) params.append('page', page);
   
   try {
-    // ✅ L'intercepteur ajoute automatiquement _t=timestamp pour bypass cache
+    console.log('🔗 URL complète:', `/offres/?${params.toString()}`);
+    console.log('📊 Paramètres:', Object.fromEntries(params));
+    
     const response = await api.get(`/offres/?${params.toString()}`);
     
-    console.log('Réponse API offres:', {
+    console.log('✅ Réponse API offres:', {
       count: response.data.count,
       resultsLength: response.data.results?.length,
       next: response.data.next,
@@ -155,7 +152,9 @@ export const searchOffres = async ({
   }
 };
 
-// ✅ DÉTAIL D'UNE OFFRE (avec anti-cache automatique)
+// =============================================================================
+// AUTRES FONCTIONS API
+// =============================================================================
 export const getOffreById = async (id) => {
   try {
     const response = await api.get(`/offres/${id}/`);
@@ -166,7 +165,6 @@ export const getOffreById = async (id) => {
   }
 };
 
-// ✅ OFFRES RÉCENTES (avec anti-cache automatique)
 export const getOffresRecentes = async () => {
   try {
     const response = await api.get('/offres/recent/');
@@ -177,12 +175,10 @@ export const getOffresRecentes = async () => {
   }
 };
 
-// ✅ NOUVEAU : Fonction de refresh manuel (pour forcer un re-fetch)
 export const refreshOffres = async () => {
   try {
-    // Force un nouveau timestamp pour garantir un fetch frais
     const response = await api.get('/offres/', {
-      params: { _force: Date.now() }  // Paramètre supplémentaire pour forcer
+      params: { _force: Date.now() }
     });
     return {
       results: response.data.results || [],

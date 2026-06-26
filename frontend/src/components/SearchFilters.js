@@ -1,25 +1,60 @@
-// src/components/SearchFilters.jsx
+// =============================================================================
+// FICHIER: src/components/SearchFilters.jsx
+// MODIFICATION: Liaison de TOUS les filtres (Domaine, Structure, Date Pub, etc.)
+// ENTREPRISE: EXPERTISE-ID
+// =============================================================================
+
 import React, { useState } from 'react';
 
 const SearchFilters = ({ onSearch }) => {
+  // =============================================================================
+  // ÉTATS DE TOUS LES FILTRES
+  // =============================================================================
   const [keyword, setKeyword] = useState('');
   const [country, setCountry] = useState('');
+  const [domaine, setDomaine] = useState('');
+  const [structure, setStructure] = useState('');
+  const [datePublication, setDatePublication] = useState(''); // 🎯 Choix unique
   const [maxDays, setMaxDays] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
 
+  // =============================================================================
+  // SOUMISSION: Envoi de la totalité des filtres combinés
+  // =============================================================================
   const handleSubmit = (e) => {
     e.preventDefault();
     if (typeof onSearch === 'function') {
-      onSearch({ keyword, pays: country, max_days: maxDays });
+      onSearch({
+        keyword: keyword,
+        pays: country,
+        domaine: domaine,
+        structure: structure,
+        date_publication: datePublication,
+        max_days: maxDays
+      });
     }
   };
 
+  // =============================================================================
+  // RÉINITIALISATION: Remise à zéro complète
+  // =============================================================================
   const handleClear = () => {
     setKeyword('');
     setCountry('');
+    setDomaine('');
+    setStructure('');
+    setDatePublication('');
     setMaxDays('');
+    
     if (typeof onSearch === 'function') {
-      onSearch({ keyword: '', pays: '', max_days: '' });
+      onSearch({
+        keyword: '',
+        pays: '',
+        domaine: '',
+        structure: '',
+        date_publication: '',
+        max_days: ''
+      });
     }
   };
 
@@ -27,7 +62,10 @@ const SearchFilters = ({ onSearch }) => {
     <div className="bg-white border-bottom shadow-sm">
       <div className="container py-3">
         <form onSubmit={handleSubmit}>
-          {/* Ligne de recherche principale */}
+          
+          {/* -----------------------------------------------------------------
+              LIGNE PRINCIPALE DE RECHERCHE
+              ----------------------------------------------------------------- */}
           <div className="row g-2 align-items-end">
             <div className="col-md-7">
               <label className="form-label small text-muted fw-semibold mb-1">
@@ -55,6 +93,7 @@ const SearchFilters = ({ onSearch }) => {
                 )}
               </div>
             </div>
+
             <div className="col-md-3">
               <label className="form-label small text-muted fw-semibold mb-1">
                 <i className="bi bi-geo-alt me-1"></i>Localité
@@ -73,32 +112,13 @@ const SearchFilters = ({ onSearch }) => {
                   <option value="ML">🇲🇱 Mali</option>
                   <option value="NE">🇳🇪 Niger</option>
                   <option value="TG">🇹🇬 Togo</option>
-                  <option value="BJ">🇧 Bénin</option>
+                  <option value="BJ">🇧🇯 Bénin</option>
                   <option value="CM">🇨🇲 Cameroun</option>
-                  <option value="GH">🇬🇭 Ghana</option>
-                  <option value="RW">🇷🇼 Rwanda</option>
-                  <option value="CD">🇨 RDC</option>
-                  <option value="ET">🇪🇹 Éthiopie</option>
-                  <option value="DZ">🇩🇿 Algérie</option>
-                  <option value="MA">🇲🇦 Maroc</option>
-                  <option value="TN">🇹 Tunisie</option>
-                  <option value="LY">🇱🇾 Libye</option>
-                  <option value="SD">🇸🇩 Soudan</option>
-                  <option value="SO">🇸🇴 Somalie</option>
-                  <option value="ER">🇪 Érythrée</option>
-                  <option value="SS">🇸🇸 Soudan du Sud</option>
-                  <option value="GA">🇬 Gabon</option>
-                  <option value="CG">🇨🇬 Congo</option>
-                  <option value="GQ">🇬 Guinée équatoriale</option>
-                  <option value="CV">🇨🇻 Cap-Vert</option>
-                  <option value="KM">🇰🇲 Comores</option>
-                  <option value="ST">🇸🇹 Sao Tomé-et-Principe</option>
+                  <option value="GA">🇬🇦 Gabon</option>
                   <option value="NG">🇳🇬 Nigeria</option>
-                  <option value="ZA">🇿🇦 Afrique du Sud</option>
-                  <option value="ZW">🇿🇼 Zimbabwe</option>
-                  <option value="TH">🇹 Thaïlande</option>
-                  <option value="IN">🇮🇳 Inde</option>
-                  <option value="PK">🇵 Pakistan</option>
+                  <option value="RW">🇷🇼 Rwanda</option>
+                  <option value="GN">GN Ghana</option>
+                  <option value="LM">LM Lomé</option>
                 </select>
                 {country && (
                   <button
@@ -113,6 +133,7 @@ const SearchFilters = ({ onSearch }) => {
                 )}
               </div>
             </div>
+
             <div className="col-md-2">
               <button type="submit" className="btn btn-primary btn-lg w-100">
                 <i className="bi bi-search me-2"></i>Chercher
@@ -120,7 +141,9 @@ const SearchFilters = ({ onSearch }) => {
             </div>
           </div>
 
-          {/* Filtres avancés (expandables) */}
+          {/* -----------------------------------------------------------------
+              SECTION FILTRES AVANCÉS (DÉPLOYABLE)
+              ----------------------------------------------------------------- */}
           <div className="mt-3">
             <button 
               type="button"
@@ -136,72 +159,88 @@ const SearchFilters = ({ onSearch }) => {
 
             {isExpanded && (
               <div className="row g-2 mt-2 pt-2 border-top">
+                
+                {/*  Domaine lié à son état */}
                 <div className="col-md-3">
                   <label className="form-label small text-muted">
                     <i className="bi bi-folder me-1"></i>Domaine
                   </label>
-                  <select className="form-select">
+                  <select 
+                    className="form-select"
+                    value={domaine}
+                    onChange={(e) => setDomaine(e.target.value)}
+                  >
                     <option value="">Tous</option>
-                    <option value="informatique">Informatique</option>
-                    <option value="btp">BTP</option>
-                    <option value="sante">Santé</option>
-                    <option value="finance">Finance</option>
-                    <option value="construction">Construction</option>
-                    <option value="fourniture">Fourniture</option>
-                    <option value="comptabilite">Comptabilité</option>
-                    <option value="agriculture">Agriculture</option>
-                    <option value="education">Éducation</option>
-                    <option value="elevage">Élevage</option>
-                    <option value="transport">Transport</option>
+                    <option value="Informatique">Informatique</option>
+                    <option value="BTP">BTP</option>
+                    <option value="Santé">Santé</option>
+                    <option value="Finance">Finance</option>
+                    <option value="Construction">Construction</option>
+                    <option value="Fourniture">Fourniture</option>
+                    <option value="Transport">Transport</option>
+                    <option value="Télécommunications">Télécommunications</option>
+                    <option value="Autre">Autre</option>
                   </select>
                 </div>
+
+                {/*  Structure liée à son état */}
                 <div className="col-md-3">
                   <label className="form-label small text-muted">
                     <i className="bi bi-building me-1"></i>Structure
                   </label>
-                  <input type="text" className="form-control" placeholder="Nom de l'organisme" />
+                  <input 
+                    type="text" 
+                    className="form-control" 
+                    placeholder="Nom de l'organisme" 
+                    value={structure}
+                    onChange={(e) => setStructure(e.target.value)}
+                  />
                 </div>
-                <div className="col-md-3">
+
+                {/*  Date de publication (Calendrier Unique) */}
+                <div className="col-md-2">
+                  <label className="form-label small text-muted">
+                    <i className="bi bi-calendar-check me-1"></i>Publié le
+                  </label>
+                  <input 
+                    type="date" 
+                    className="form-control"
+                    value={datePublication}
+                    onChange={(e) => setDatePublication(e.target.value)}
+                  />
+                </div>
+
+                {/*  Date d'expiration liée à son état */}
+                <div className="col-md-2">
                   <label className="form-label small text-muted">
                     <i className="bi bi-calendar-event me-1"></i>Date d'expiration
                   </label>
-                  <div className="position-relative">
-                    <select 
-                      className="form-select"
-                      value={maxDays}
-                      onChange={(e) => setMaxDays(e.target.value)}
-                      style={{ paddingRight: '40px' }}
-                    >
-                      <option value="">Toutes</option>
-                      <option value="7">Dans 7 jours</option>
-                      <option value="14">Dans 14 jours</option>
-                      <option value="30">Dans 30 jours</option>
-                      <option value="60">Dans 60 jours</option>
-                    </select>
-                    {/*{maxDays && (
-                      {/*<button
-                        type="button"
-                        className="btn btn-link position-absolute top-50 end-0 translate-middle-y text-muted"
-                        onClick={() => setMaxDays('')}
-                        title="Effacer le filtre"
-                        style={{ padding: '0 10px', zIndex: 10, marginRight: '20px' }}
-                      >
-                        <i className="bi bi-x-lg"></i>
-                      </button>*/}
-                    {/*)}*/}
-                  </div>
+                  <select 
+                    className="form-select"
+                    value={maxDays}
+                    onChange={(e) => setMaxDays(e.target.value)}
+                  >
+                    <option value="">Toutes</option>
+                    <option value="2">Dans 2 jours</option>
+                    <option value="5">Dans 5 jours</option>
+                    <option value="7">Dans 7 jours</option>
+                    <option value="14">Dans 14 days</option>
+                    <option value="30">Dans 30 jours</option>
+                  </select>
                 </div>
-                <div className="col-md-3 d-flex align-items-end justify-content-end">
-                  {/* Bouton X pour réinitialiser tous les filtres */}
+
+                {/* Bouton de réinitialisation de la section avancée */}
+                <div className="col-md-2 d-flex align-items-end justify-content-end">
                   <button 
                     type="button" 
-                    className="btn btn-outline-secondary btn-sm"
+                    className="btn btn-outline-secondary w-100"
                     onClick={handleClear}
                     title="Réinitialiser tous les filtres"
                   >
-                    <i className="bi bi-x-lg me-1"></i>Réinitialiser
+                    <i className="bi bi-arrow-counterclockwise me-1"></i>Réinitialiser
                   </button>
                 </div>
+
               </div>
             )}
           </div>

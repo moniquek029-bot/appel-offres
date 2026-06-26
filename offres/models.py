@@ -426,14 +426,14 @@ class SuggestionOffre(models.Model):
         verbose_name="Statut de la réponse"
     )
     
-    # ✅ NOUVEAU : Date de réponse de l'expert
+    #  NOUVEAU : Date de réponse de l'expert
     date_reponse = models.DateTimeField(
         null=True, 
         blank=True,
         verbose_name="Date de réponse"
     )
     
-    # ✅ NOUVEAU : Commentaire de l'expert
+    #  NOUVEAU : Commentaire de l'expert
     commentaire_expert = models.TextField(
         blank=True,
         verbose_name="Commentaire de l'expert",

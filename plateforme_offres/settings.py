@@ -3,6 +3,7 @@
 from datetime import timedelta
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 #import corsheaders
 
@@ -144,7 +145,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # Taille max des uploads (10 MB)
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
-# Password validation
+
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -164,53 +165,41 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+# =============================================================================
+# CONFIGURATION EMAIL - SENDGRID
+# =============================================================================
+load_dotenv()
 
-# settings.py
-# =============================================================================
-# CONFIGURATION EMAIL (Mailtrap via django-anymail)
-# =============================================================================
-# =============================================================================
-# CONFIGURATION EMAIL - Mailtrap SMTP (Test uniquement)
-# =============================================================================
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.sendgrid.net'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'apikey'  # Littéralement 'apikey'
-EMAIL_HOST_PASSWORD = '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'  # ← Collez votre clé ici
-DEFAULT_FROM_EMAIL = 'Plateforme Offre <moniquek029@gmail.com>'
+
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'apikey')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'Plateforme Offre <moniquek029@gmail.com>')  # ✅ Sans espace
+
+# =============================================================================
+# URLS FRONTEND/BACKEND
+# =============================================================================
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:8000')
+
+# =============================================================================
+# HOSTS ET CORS - ✅ IMPORTANT POUR NGROK !
+# =============================================================================
+ALLOWED_HOSTS = ['*']  # ✅ En développement seulement
+
 LANGUAGE_CODE = 'fr-FR'
-
 TIME_ZONE = 'Africa/Ouagadougou'
-
 USE_I18N = True
-
 USE_TZ = True
 
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
-
-
-STATIC_URL = 'static/'
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
-
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-STATICFILES_DIRS = (
-    os.path.join(BASE_DIR, 'static'),   
-)
-
-#CORS configuration pour permettre les requêtes depuis le frontend (React) pendant le développement
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3000',  # Adresse du frontend React en développement
-    'http://127.0.0.1:3000',  # Adresse alternative du frontend React
-    'http://localhost:5173',  # Adresse du frontend React en développement (Vite)
-    'http://127.0.0.1:5173',  # Adresse alternative du frontend React (Vite)
-]
-CORS_ALLOW_ALL_CREDENTIALS=True
+# =============================================================================
+# CORS - Autoriser localhost ET ngrok
+# =============================================================================
+CORS_ALLOW_ALL_ORIGINS = True  # ✅ En développement seulement (plus simple)
+CORS_ALLOW_CREDENTIALS = True
 
 # Optionnel : headers autorisés
 CORS_ALLOW_HEADERS = [
@@ -224,32 +213,46 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
+
+# =============================================================================
+# STATIC FILES
+# =============================================================================
+STATIC_URL = 'static/'
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+STATICFILES_DIRS = (
+    os.path.join(BASE_DIR, 'static'),   
+)
+
+# =============================================================================
+# REST FRAMEWORK
+# =============================================================================
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny', # Permet l'accès libre pendant le développement
+        'rest_framework.permissions.AllowAny',
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication', # Utilise JWT pour l'authentification
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
     ],
-
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 10, # Nombre d'éléments par page pour la pagination
+    'PAGE_SIZE': 10,
 }
 
-# Configuration pour les tokens JWT (si utilisé)
+# =============================================================================
+# JWT CONFIGURATION
+# =============================================================================
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60), # Durée de vie du token d'accès
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7), # Durée de vie du token de rafraîchissement
-    'ROTATE_REFRESH_TOKENS': True, # Permet de faire tourner les tokens de rafraîchissement pour plus de sécurité
-    'BLACKLIST_AFTER_ROTATION': True, # Noircit les tokens de rafraîchissement après leur utilisation
-    'ALGORITHM': 'HS256', # Algorithme de signature du token
-    'UPDATE_LAST_LOGIN': True, # Met à jour la date de dernière connexion lors de l'utilisation du token
-    'SIGNING_KEY': SECRET_KEY, # Clé de signature du token (utilise la clé secrète de Django)
-    'USER_ID_FIELD': 'id', # Champ utilisé pour identifier l'utilisateur dans le token
-    'USER_ID_CLAIM': 'user_id', # Nom de la revendication dans le token qui contient l'ID de l'utilisateur
-    'AUTH_HEADER_TYPES': ('Bearer',), # Type d'en-tête pour l'authentification
-    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION', # Nom de l'en-tête d'authentification
-    'TOKEN_TYPE_CLAIM': 'token_type', # Nom de la revendication dans le token qui contient le type de token
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'ALGORITHM': 'HS256',
+    'UPDATE_LAST_LOGIN': True,
+    'SIGNING_KEY': SECRET_KEY,
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
+    'TOKEN_TYPE_CLAIM': 'token_type',
 }
