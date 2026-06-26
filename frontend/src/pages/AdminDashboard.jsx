@@ -1646,7 +1646,14 @@ const AdminDashboard = () => {
         <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
             <div className="modal-content">
-              <div className="modal-header py-2 px-3 bg-primary text-white">
+              <div 
+                className="modal-header py-2 px-3 text-white"
+                style={{
+                  background: 'linear-gradient(135deg, #396cf8 0%, #220bf5e8 100%)',
+                  borderBottom: '3px solid #1346c7',
+                  boxShadow: '0 2px 8px rgba(30, 58, 138, 0.3)'
+                }}
+              >
                 <h6 className="modal-title" style={{ fontSize: '0.85rem' }}>
                   <i className="bi bi-plus-circle me-2"></i>
                   Publier une nouvelle offre
@@ -1794,30 +1801,30 @@ const AdminDashboard = () => {
                             <i className="bi bi-file-earmark-pdf me-1 text-danger"></i>
                             Document de l'offre (TDR)
                           </h6>
-                          <p className="mb-2 text-muted" style={{ fontSize: '0.65rem' }}>
+                          {/*<p className="mb-2 text-muted" style={{ fontSize: '0.65rem' }}>
                             Choisissez une option (ou les deux) :
-                          </p>
+                          </p>*/}
                     
                           <div className="mb-2">
-                            <label className="form-label small fw-semibold mb-1" style={{ fontSize: '0.65rem' }}>
+                            {/*<label className="form-label small fw-semibold mb-1" style={{ fontSize: '0.65rem' }}>
                               <i className="bi bi-link-45deg me-1"></i>
                               Option 1 : URL vers le PDF
-                            </label>
-                            <input 
+                            </label>*/}
+                            {/*<input 
                               type="url" 
                               className="form-control form-control-sm"
                               value={newOffreForm.url_tdr}
                               onChange={e => setNewOffreForm({...newOffreForm, url_tdr: e.target.value})}
                               placeholder="https://.../document.pdf"
                               style={{ fontSize: '0.75rem', padding: '2px 4px' }}
-                            />
+                            />*/}
                           </div>
 
                           <div>
-                            <label className="form-label small fw-semibold mb-1" style={{ fontSize: '0.65rem' }}>
+                            {/*<label className="form-label small fw-semibold mb-1" style={{ fontSize: '0.65rem' }}>
                               <i className="bi bi-upload me-1"></i>
                               Option 2 : Télécharger un fichier PDF
-                            </label>
+                            </label>*/}
                             <input 
                               type="file"
                               className={`form-control form-control-sm ${fichierPdfError ? 'is-invalid' : ''}`}
@@ -1879,7 +1886,6 @@ const AdminDashboard = () => {
               
                     <div className="col-6">
                       <label className="form-label" style={{ fontSize: '0.7rem' }}>
-                        <i className="bi bi-flag me-1"></i>
                         Statut
                       </label>
                       <select 

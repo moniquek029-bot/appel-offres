@@ -274,7 +274,7 @@ const JobDetail = () => {
                   )}
                   
                   {/* Info supplémentaire */}
-                  <small className="text-muted">
+                  {/*<small className="text-muted">
                     {docInfo.type === 'local_pdf' && (
                       <><i className="bi bi-info-circle me-1"></i>Document stocké sur notre serveur</>
                     )}
@@ -284,7 +284,7 @@ const JobDetail = () => {
                     {docInfo.type === 'redirect' && (
                       <><i className="bi bi-info-circle me-1"></i>Vous serez redirigé vers le site de l'organisme</>
                     )}
-                  </small>
+                  </small>*/}
                 </div>
               ) : (
                 //  UTILISATEUR NON CONNECTÉ : afficher message avec lien de connexion
@@ -317,7 +317,7 @@ const JobDetail = () => {
           </div>
 
           {/* Section Admin : informations de debug */}
-          {isAdmin && (
+          {/*{isAdmin && (
             <div className="mt-3 pt-3 border-top">
               <h6 className="text-muted mb-2">
                 <i className="bi bi-gear-fill me-1"></i>
@@ -346,7 +346,7 @@ const JobDetail = () => {
                 )}
               </div>
             </div>
-          )}
+          )}*/}
         </div>
       </div>
     </div>

@@ -128,18 +128,20 @@ const VerticalFilters = ({ onFilterChange }) => {
           </select>
         </div>
 
-        {/* Structure - Champ texte libre */}
+        {/* Structure - Dropdown prédéfini */}
         <div className="mb-3">
           <label className="form-label small fw-semibold text-secondary">Structure</label>
-          <input 
-            type="text" 
-            className="form-control form-control-sm" 
-            placeholder="Toutes"
+          <select 
             name="structure"
+            className="form-select form-select-sm" 
             value={filters.structure}
             onChange={handleChange}
-          />
-          <small className="text-muted">Laissez vide pour toutes les structures</small>
+          >
+            <option value="">Toutes</option>
+            <option value="nationale">🇫 Nationale</option>
+            <option value="internationale"> Internationale</option>
+          </select>
+          {/*<small className="text-muted">Filtrer par type de structure</small>*/}
         </div>
 
         {/* ✅ Date de publication (filtre sur le jour exact) */}

@@ -261,12 +261,38 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                 )
 
         # =========================================================================
-    # 5. STRUCTURE
+        # 5. STRUCTURE / TYPE DE STRUCTURE
         # =========================================================================
-        structure = self.request.query_params.get('structure') or self.request.query_params.get('organisme')
-        if structure:
-            queryset = queryset.filter(organisme__icontains=structure)
+        structure = self.request.query_params.get('structure')
 
+        if structure:
+            if structure == 'nationale':
+                # Structures nationales (Burkina Faso, gouvernements locaux, etc.)
+                queryset = queryset.filter(
+                    Q(organisme__icontains='Gouvernement') |
+                    Q(organisme__icontains='Ministère') |
+                    Q(organisme__icontains='Burkina') |
+                    Q(organisme__icontains='BF') |
+                    Q(pays='BF')
+                )
+            elif structure == 'internationale':
+                # Structures internationales (ONU, Banque Mondiale, etc.)
+                queryset = queryset.filter(
+                    Q(organisme__icontains='UN') |
+                    Q(organisme__icontains='ONU') |
+                    Q(organisme__icontains='Banque Mondiale') |
+                    Q(organisme__icontains='World Bank') |
+                    Q(organisme__icontains='UEMOA') |
+                    Q(organisme__icontains='Union Européenne') |
+                    Q(organisme__icontains='BAD') |
+                    Q(organisme__icontains='AFD') |
+                    Q(organisme__icontains='UNICEF') |
+                    Q(organisme__icontains='OMS') |
+                    Q(organisme__icontains='WHO') |
+                    Q(organisme__icontains='UNDP') |
+                    Q(organisme__icontains='PNUD') |
+                    ~Q(pays='BF')  # Exclure les offres purement nationales
+                )
         # =========================================================================
     # 6. DATE DE PUBLICATION
         # =========================================================================

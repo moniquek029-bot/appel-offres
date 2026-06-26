@@ -103,8 +103,8 @@ const Home = () => {
       ...newFilters
     };
     
-    console.log('🎯 Nouveaux filtres reçus:', newFilters);
-    console.log('🔄 Filtres mis à jour:', updatedFilters);
+    console.log(' Nouveaux filtres reçus:', newFilters);
+    console.log(' Filtres mis à jour:', updatedFilters);
     
     setFilters(updatedFilters);
     fetchOffres(1, updatedFilters);
@@ -173,38 +173,26 @@ const Home = () => {
             )}
 
             {loading ? (
-              <div className="text-center py-5">
-                <div className="spinner-border text-primary" role="status">
-                  <span className="visually-hidden">Chargement...</span>
-                </div>
+            <div className="text-center py-5">
+              <div className="spinner-border text-primary" role="status">
+                <span className="visually-hidden">Chargement...</span>
               </div>
-            ) : offres.length > 0 ? (
-              <>
-                {offres.map((offre) => (
-                  <JobCard key={offre.id} offre={offre} />
-                ))}
-              </>
-            ) : (
-              <div className="alert alert-info text-center py-5">
-                <h5 className="mt-3">Aucune offre trouvée</h5>
-                <button className="btn btn-outline-primary mt-2" onClick={() => {
-                  const resetFilters = { 
-                    keyword: '', 
-                    pays: '', 
-                    max_days: '', 
-                    domaine: '', 
-                    structure: '',
-                    date_publication: '',
-                    date_cloture: ''
-                  };
-                  setFilters(resetFilters);
-                  fetchOffres(1, resetFilters);
-                }}>
-                  <i className="bi bi-arrow-right me-1"></i>
-                  Afficher toutes les offres
-                </button>
-              </div>
-            )}
+            </div>
+          ) : offres.length > 0 ? (
+            <>
+              {offres.map((offre) => (
+                <JobCard key={offre.id} offre={offre} />
+              ))}
+            </>
+          ) : (
+            <div className="alert alert-info text-center py-5">
+              <i className="bi bi-inbox" style={{ fontSize: '3rem', color: '#9CA3AF' }}></i>
+              <h5 className="mt-3 mb-1">Aucune offre trouvée</h5>
+              <p className="text-muted mb-0">
+                Essayez de modifier vos critères de recherche
+              </p>
+            </div>
+          )}
 
             {totalPages > 1 && (
               <nav className="mt-5" aria-label="Pagination des offres">

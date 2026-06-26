@@ -107,7 +107,7 @@ def run_scheduled_scraping_task(self, source_id=None):
     """Tâche Celery pour le scraping (PDF optionnel + Fallback intelligent)"""
     if source_id:
         sources = SourceScraping.objects.filter(id=source_id, est_actif=True)
-        logger.info(f"🔍 Scraping manuel pour source ID {source_id}")
+        logger.info(f" Scraping manuel pour source ID {source_id}")
     else:
         sources = SourceScraping.objects.filter(est_actif=True)
         logger.info(" Scraping automatique : toutes les sources actives")
@@ -311,7 +311,7 @@ def save_offre_real(data: dict, source: SourceScraping, require_pdf: bool = Fals
 @shared_task
 def daily_archive_task():
     """Tâche quotidienne unifiée : Archive et purge les offres expirées"""
-    logger.info("🧹 Lancement du cycle de vie des offres (Archivage + Purge)...")
+    logger.info(" Lancement du cycle de vie des offres (Archivage + Purge)...")
     try:
         archived, deleted = archive_and_delete_old_offres(days_to_keep=30)
         return {
@@ -337,3 +337,6 @@ def daily_alert_matching_task(self):
         if self.request.retries < self.max_retries:
             raise self.retry(exc=e)
         return {"notified": 0}
+    
+
+
