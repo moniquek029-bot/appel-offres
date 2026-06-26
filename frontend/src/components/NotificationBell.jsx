@@ -1,12 +1,12 @@
 // src/components/NotificationBell.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';  // ✅ AJOUTER CET IMPORT
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const NotificationBell = ({ enabled = true }) => {
   const { user } = useAuth();
-  const navigate = useNavigate();  // ✅ AJOUTER CETTE LIGNE
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -39,19 +39,11 @@ const NotificationBell = ({ enabled = true }) => {
     }
   };
 
- // Dans NotificationBell.jsx, trouvez cette section :
-useEffect(() => {
-  fetchNotifications();
-  
-  // ❌ SUPPRIMER CE POLLING
-  // if (enabled) {
-  //   const interval = setInterval(fetchNotifications, 10000);
-  //   return () => clearInterval(interval);
-  // }
-  
-  // ✅ REMPLACER PAR UN FETCH UNIQUE
-  fetchNotifications();
-}, [user, enabled]);
+  // ✅ CORRECTIF : useEffect propre sans polling
+  useEffect(() => {
+    fetchNotifications();
+  }, [user, enabled]);
+
   const markAsRead = async (notifId) => {
     try {
       await api.post(`/notifications/${notifId}/marquer-lue/`);
@@ -111,10 +103,9 @@ useEffect(() => {
     return '#6B7280';
   };
 
-  // ✅ Fonction pour naviguer vers la page complète
   const goToAllNotifications = () => {
     setShowDropdown(false);
-    navigate('/notifications');  // ✅ Utiliser navigate au lieu de window.location.href
+    navigate('/notifications');
   };
 
   if (!enabled) {
@@ -295,12 +286,12 @@ useEffect(() => {
               )}
             </div>
 
-            {/* Footer - ✅ CORRIGÉ */}
+            {/* Footer */}
             {notifications.length > 0 && (
               <div className="p-2 border-top text-center">
                 <button 
                   className="btn btn-sm btn-link text-decoration-none"
-                  onClick={goToAllNotifications}  // ✅ Utiliser la fonction
+                  onClick={goToAllNotifications}
                   style={{
                     color: '#1E3A8A',
                     fontWeight: '600',

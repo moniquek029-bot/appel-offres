@@ -2069,3 +2069,52 @@ class SuggestionExpertViewSet(viewsets.ViewSet):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        
+
+
+class NotificationUserViewSet(viewsets.ModelViewSet):
+    """Gestion des notifications utilisateur"""
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Notification.objects.filter(destinataire=self.request.user).order_by('-date_envoi')
+
+    @action(detail=True, methods=['post'], url_path='marquer-lue')
+    def marquer_lue(self, request, pk=None):
+        notification = self.get_object()
+        if notification.destinataire == request.user:
+            notification.est_lue = True
+            notification.save()
+            return Response({'status': 'Notification marquée comme lue'})
+        return Response({'error': 'Vous ne pouvez pas modifier cette notification'}, status=403)
+
+    # : Supprimer une notification
+    @action(detail=True, methods=['delete'], url_path='supprimer')
+    def supprimer(self, request, pk=None):
+        """Supprimer une notification spécifique"""
+        try:
+            notification = self.get_object()
+            if notification.destinataire != request.user:
+                return Response(
+                    {'error': 'Vous ne pouvez pas supprimer cette notification'}, 
+                    status=403
+                )
+            
+            notification.delete()
+            return Response({'status': 'Notification supprimée'})
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
+    # : Tout supprimer
+    @action(detail=False, methods=['delete'], url_path='tout-supprimer')
+    def tout_supprimer(self, request):
+        """Supprimer toutes les notifications de l'utilisateur"""
+        try:
+            count, _ = Notification.objects.filter(destinataire=request.user).delete()
+            return Response({
+                'status': f'{count} notification(s) supprimée(s)',
+                'count': count
+            })
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)

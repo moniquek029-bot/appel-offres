@@ -9,6 +9,7 @@ from datetime import date
 
 from offres.scraping.base import BaseScraper
 from offres.scraping.utils import clean_text, normalize_url, parse_french_date, detecter_pays
+from playwright.sync_api import sync_playwright
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +20,14 @@ try:
     from selenium.webdriver.chrome.options import Options
     from webdriver_manager.chrome import ChromeDriverManager
     SELENIUM_AVAILABLE = True
-    logger.info("✅ Selenium disponible")
+    logger.info(" Selenium disponible")
 except ImportError:
     SELENIUM_AVAILABLE = False
-    logger.warning("⚠️ Selenium non installé. Installez avec: pip install selenium webdriver-manager")
+    logger.warning(" Selenium non installé. Installez avec: pip install selenium webdriver-manager")
 
+# Configuration globale pour accélérer Playwright
+PLAYWRIGHT_TIMEOUT = 15000  # 15 secondes au lieu de 30
+PLAYWRIGHT_WAIT_UNTIL = "domcontentloaded"  # Plus rapide que "networkidle"
 
 class SmartParser(BaseScraper):
     """Parser intelligent avec support Selenium anti-détection"""
@@ -71,9 +75,9 @@ class SmartParser(BaseScraper):
             # Masquer webdriver
             self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             
-            logger.info("✅ Driver Selenium initialisé")
+            logger.info(" Driver Selenium initialisé")
         except Exception as e:
-            logger.error(f"❌ Erreur initialisation Selenium: {e}")
+            logger.error(f" Erreur initialisation Selenium: {e}")
             self.driver = None
     
     def _close_driver(self):
@@ -111,7 +115,7 @@ class SmartParser(BaseScraper):
         offres = []
         conteneurs = self._trouver_conteneurs(soup)
         
-        logger.info(f"🔍 {len(conteneurs)} conteneurs détectés")
+        logger.info(f" {len(conteneurs)} conteneurs détectés")
         
         for conteneur in conteneurs:
             try:
@@ -147,10 +151,10 @@ class SmartParser(BaseScraper):
                 offres.append(offre)
                 
             except Exception as e:
-                logger.debug(f"⚠️ Erreur parsing: {e}")
+                logger.debug(f" Erreur parsing: {e}")
                 continue
         
-        logger.info(f"✅ {len(offres)} offre(s) extraite(s)")
+        logger.info(f" {len(offres)} offre(s) extraite(s)")
         return offres[:50]
     
     def _est_une_offre(self, texte: str) -> bool:

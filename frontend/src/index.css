@@ -114,7 +114,7 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: var(--gray-100);  /* Fond gris très clair */
+  background-color: #d3e1fb;  /* Fond gris très clair */
   color: var(--gray-800);             /* Texte gris foncé */
 }
 
@@ -361,6 +361,9 @@ code {
 .modal-compact .modal-footer {
   padding: var(--spacing-2) var(--spacing-3);
 }
+
+
+
 
 /* =============================================================================
    8. MESSAGES ET NOTIFICATIONS
@@ -616,9 +619,9 @@ code {
    ============================================================================= */
 
 /* Fond de la page - Bleu très clair personnalisé */
-body {
-  background-color: #d3e1fb;  /* Bleu clair personnalisé */
-  min-height: 100vh;
+/*body {
+  /*background-color: #d3e1fb;  /* Bleu clair personnalisé */
+  /*min-height: 100vh;
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
@@ -629,6 +632,18 @@ body {
   border: none;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Fond personnalisé pour la page Home */
+.home-page {
+  background-color: #d3e1fb;  /* Bleu clair */
+  min-height: 100vh;
+}
+
+/* Ou avec dégradé */
+.home-page-gradient {
+  background: linear-gradient(135deg, #d3e1fb 0%, #e8f4ff 100%);
+  min-height: 100vh;
 }
 
 /* =============================================================================

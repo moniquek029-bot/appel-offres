@@ -374,13 +374,23 @@ urlpatterns = [
         'get': 'conversation_avec_admin'
     }), name='conversation-admin'),
     
+     #✅ NOTIFICATIONS - Routes complètes
     path('api/notifications/', NotificationUserViewSet.as_view({
         'get': 'list'
     }), name='notification-list'),
+    path('api/notifications/<int:pk>/', NotificationUserViewSet.as_view({
+        'get': 'retrieve',
+        'delete': 'destroy'
+    }), name='notification-detail'),
     path('api/notifications/<int:pk>/marquer-lue/', NotificationUserViewSet.as_view({
         'post': 'marquer_lue'
     }), name='notification-marquer-lue'),
-    
+    path('api/notifications/<int:pk>/supprimer/', NotificationUserViewSet.as_view({
+        'delete': 'supprimer'
+    }), name='notification-supprimer'),
+    path('api/notifications/tout-supprimer/', NotificationUserViewSet.as_view({
+        'delete': 'tout_supprimer'
+    }), name='notification-tout-supprimer'),
     # =========================================================================
     # ADMIN DASHBOARD
     # =========================================================================

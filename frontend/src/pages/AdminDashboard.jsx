@@ -421,7 +421,7 @@ const AdminDashboard = () => {
         },
       });
     
-      setNewOffreSuccess('✅ Offre publiée avec succès !');
+      setNewOffreSuccess(' Offre publiée avec succès !');
   
       setNewOffreForm({
         titre: '', organisme: '', description: '', pays: 'BF',

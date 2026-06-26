@@ -7,6 +7,7 @@ const Notifications = () => {
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
   useEffect(() => {
     fetchNotifications();
@@ -34,7 +35,7 @@ const Notifications = () => {
 
   const marquerLue = async (id) => {
     try {
-      await api.patch(`/notifications/${id}/`, { est_lue: true });
+      await api.post(`/notifications/${id}/marquer-lue/`);
       fetchNotifications();
     } catch (err) {
       console.error(err);
@@ -45,7 +46,7 @@ const Notifications = () => {
     try {
       const nonLues = notifications.filter(n => !n.est_lue);
       for (const notif of nonLues) {
-        await api.patch(`/notifications/${notif.id}/`, { est_lue: true });
+        await api.post(`/notifications/${notif.id}/marquer-lue/`);
       }
       fetchNotifications();
     } catch (err) {
@@ -53,21 +54,48 @@ const Notifications = () => {
     }
   };
 
-  // ✅ Fonction pour obtenir l'icône Bootstrap appropriée
-  const getTypeIcon = (objet) => {
-    if (objet?.toLowerCase().includes('message')) {
-      return { icon: 'bi-chat-dots-fill', color: '#3B82F6' }; // Bleu
+  //  : Supprimer une notification
+  const supprimerNotification = async (id) => {
+    if (!window.confirm('Supprimer cette notification ?')) return;
+    
+    try {
+      await api.delete(`/notifications/${id}/supprimer/`);
+      setNotifications(notifications.filter(n => n.id !== id));
+    } catch (err) {
+      console.error('❌ Erreur suppression:', err);
     }
-    if (objet?.toLowerCase().includes('suggestion')) {
-      return { icon: 'bi-lightbulb-fill', color: '#F59E0B' }; // Or
-    }
-    if (objet?.toLowerCase().includes('offre')) {
-      return { icon: 'bi-briefcase-fill', color: '#10B981' }; // Vert
-    }
-    return { icon: 'bi-bell-fill', color: '#6B7280' }; // Gris
   };
 
-  // ✅ Formater la date
+  //  Tout supprimer
+  const toutSupprimer = async () => {
+    if (!confirmDeleteAll) {
+      setConfirmDeleteAll(true);
+      setTimeout(() => setConfirmDeleteAll(false), 5000);
+      return;
+    }
+
+    try {
+      await api.delete('/notifications/tout-supprimer/');
+      setNotifications([]);
+      setConfirmDeleteAll(false);
+    } catch (err) {
+      console.error('❌ Erreur suppression totale:', err);
+    }
+  };
+
+  const getTypeIcon = (objet) => {
+    if (objet?.toLowerCase().includes('message')) {
+      return { icon: 'bi-chat-dots-fill', color: '#3B82F6' };
+    }
+    if (objet?.toLowerCase().includes('suggestion')) {
+      return { icon: 'bi-lightbulb-fill', color: '#F59E0B' };
+    }
+    if (objet?.toLowerCase().includes('offre')) {
+      return { icon: 'bi-briefcase-fill', color: '#10B981' };
+    }
+    return { icon: 'bi-bell-fill', color: '#6B7280' };
+  };
+
   const formatDate = (dateStr) => {
     const date = new Date(dateStr);
     return date.toLocaleString('fr-FR', {
@@ -93,13 +121,19 @@ const Notifications = () => {
 
   return (
     <div className="container py-4">
-      {/* ✅ En-tête avec bouton de fermeture */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      {/* En-tête avec boutons */}
+      <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <h3 className="mb-0">
           <i className="bi bi-bell me-2"></i>
           Mes notifications
+          {notifications.length > 0 && (
+            <span className="badge bg-primary ms-2" style={{ fontSize: '0.9rem' }}>
+              {notifications.length}
+            </span>
+          )}
         </h3>
-        <div className="d-flex gap-2">
+        
+        <div className="d-flex gap-2 flex-wrap">
           {nonLuesCount > 0 && (
             <button 
               className="btn btn-outline-primary btn-sm"
@@ -109,7 +143,19 @@ const Notifications = () => {
               Tout marquer comme lu ({nonLuesCount})
             </button>
           )}
-          {/* ✅ BOUTON DE FERMETURE */}
+          
+          {/* ✅ BOUTON TOUT SUPPRIMER */}
+          {notifications.length > 0 && (
+            <button 
+              className={`btn btn-sm ${confirmDeleteAll ? 'btn-danger' : 'btn-outline-danger'}`}
+              onClick={toutSupprimer}
+            >
+              <i className="bi bi-trash me-1"></i>
+              {confirmDeleteAll ? 'Confirmer la suppression ?' : 'Tout supprimer'}
+            </button>
+          )}
+          
+          {/* BOUTON FERMER */}
           <button 
             className="btn btn-outline-secondary btn-sm"
             onClick={() => navigate(-1)}
@@ -136,36 +182,30 @@ const Notifications = () => {
                   <div 
                     key={notif.id} 
                     className={`list-group-item border-0 ${!notif.est_lue ? 'bg-light' : ''}`}
-                    onClick={() => !notif.est_lue && marquerLue(notif.id)}
                     style={{ 
-                      cursor: 'pointer',
                       transition: 'all 0.2s',
                       borderRadius: '8px',
                       marginBottom: '8px'
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#F9FAFB';
-                      e.currentTarget.style.transform = 'translateX(4px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = notif.est_lue ? 'white' : '#F9FAFB';
-                      e.currentTarget.style.transform = 'translateX(0)';
-                    }}
                   >
                     <div className="d-flex align-items-start gap-3">
-                      {/* ✅ Icône Bootstrap */}
+                      {/* Icône cliquable pour marquer comme lu */}
                       <div 
                         className="d-flex align-items-center justify-content-center rounded-circle flex-shrink-0"
                         style={{ 
                           width: '45px',
                           height: '45px',
                           backgroundColor: `${color}20`,
-                          color: color
+                          color: color,
+                          cursor: !notif.est_lue ? 'pointer' : 'default'
                         }}
+                        onClick={() => !notif.est_lue && marquerLue(notif.id)}
+                        title={!notif.est_lue ? 'Marquer comme lu' : ''}
                       >
                         <i className={`bi ${icon}`} style={{ fontSize: '1.25rem' }}></i>
                       </div>
                       
+                      {/* Contenu de la notification */}
                       <div className="flex-grow-1">
                         <div className="d-flex justify-content-between align-items-start mb-1">
                           <h6 className="mb-0 fw-bold" style={{ fontSize: '0.95rem' }}>
@@ -181,38 +221,57 @@ const Notifications = () => {
                             )}
                             {notif.objet}
                           </h6>
-                          <small className="text-muted" style={{ fontSize: '0.8rem' }}>
+                          <small className="text-muted ms-2" style={{ fontSize: '0.8rem' }}>
                             {formatDate(notif.date_envoi)}
                           </small>
                         </div>
                         <p className="mb-2 text-muted" style={{ fontSize: '0.9rem' }}>
                           {notif.message}
                         </p>
-                        {notif.offre_liee && (
+                        
+                        {/* Actions */}
+                        <div className="d-flex gap-2 align-items-center flex-wrap">
+                          {notif.offre_liee && (
+                            <button 
+                              className="btn btn-sm btn-link p-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/offres/${notif.offre_liee}`);
+                              }}
+                              style={{
+                                color: '#1E3A8A',
+                                textDecoration: 'none',
+                                fontWeight: '500'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = '#F59E0B';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = '#1E3A8A';
+                              }}
+                            >
+                              <i className="bi bi-arrow-right me-1"></i>
+                              Voir l'offre concernée
+                            </button>
+                          )}
+                          
+                          {/* ✅ BOUTON SUPPRIMER INDIVIDUEL */}
                           <button 
-                            className="btn btn-sm btn-link p-0"
+                            className="btn btn-sm btn-outline-danger ms-auto"
                             onClick={(e) => {
                               e.stopPropagation();
-                              navigate(`/offres/${notif.offre_liee}`);
+                              supprimerNotification(notif.id);
                             }}
-                            style={{
-                              color: '#1E3A8A',
-                              textDecoration: 'none',
-                              fontWeight: '500'
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.color = '#F59E0B';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.color = '#1E3A8A';
-                            }}
+                            style={{ fontSize: '0.75rem', padding: '2px 8px' }}
+                            title="Supprimer cette notification"
                           >
-                            <i className="bi bi-arrow-right me-1"></i>
-                            Voir l'offre concernée
+                            <i className="bi bi-trash me-1"></i>
+                            Supprimer
                           </button>
-                        )}
+                        </div>
                       </div>
                       
+                      {/* Badge Nouveau */}
                       {!notif.est_lue && (
                         <span className="badge bg-primary rounded-pill">
                           Nouveau

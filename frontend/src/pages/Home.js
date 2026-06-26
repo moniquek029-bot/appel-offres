@@ -144,7 +144,7 @@ const Home = () => {
   };
 
   return (
-    <div className="min-vh-100 d-flex flex-column bg-light">
+    <div className="home-page ">
       <SearchBar onSearch={handleSearch} />
 
       <div className="container py-4">
