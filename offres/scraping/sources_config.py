@@ -1,89 +1,113 @@
 # offres/scraping/sources_config.py
 """
-Sources actives - Configuration des sites cibles pour le scraping réel
+Sources actives - URLs corrigées et testées
 """
 
 ACTIVE_SOURCES = [
+    # =========================================================================
+    # ✅ SOURCES ACTIVES
+    # =========================================================================
     {
-        'nom': 'UNFPA Burkina',
-        'url': 'https://burkinafaso.unfpa.org/fr/call-for-submissions',
+        'nom': 'UNFPA Burkina Faso',
+        'url': 'https://burkinafaso.unfpa.org/fr/submissions',  # ✅ URL corrigée
         'parser': 'unfpa',
         'pays': 'BF',
         'est_actif': True,
-        'require_pdf': False,
         'use_js': False,
-        'delay': 0,
+        'delay': 2,
     },
     {
-        'nom': 'AGETIB',
-        'url': 'https://www.agetib.net/avis-de-marches',
-        'parser': 'agetib',
-        'pays': 'BF',
+        'nom': 'UNDP Procurement',
+        'url': 'https://procurement-notices.undp.org/',
+        'parser': 'undp',
+        'pays': 'GLOBAL',
         'est_actif': True,
-        'require_pdf': False,
         'use_js': False,
-        'delay': 0,
-    },
-    {
-        'nom': 'SONABEL',
-        'url': 'http://www.sonabel.bf/index.php/marches-publics',
-        'parser': 'sonabel',
-        'pays': 'BF',
-        'est_actif': True,
-        'require_pdf': False,
-        'use_js': False,
-        'delay': 0,
-    },
-    {
-        'nom': 'UEMOA',
-        'url': 'https://www.uemoa.int/fr/appel-d-offre',
-        'parser': 'uemoa',
-        'pays': 'BF',
-        'est_actif': True,
-        'require_pdf': False,
-        'use_js': False,
-        'delay': 0,
-    },
-    {
-        'nom': 'JOFFRES',
-        'url': 'https://www.joffres.net/burkina-faso',
-        'parser': 'joffres',
-        'pays': 'BF',
-        'est_actif': True,
-        'require_pdf': False,
-        'use_js': False,
-        'delay': 0,
+        'delay': 2,
     },
     
-    # 🌍 NOUVELLES SOURCES INTERNATIONALES (Intégrées proprement)
+    # =========================================================================
+    # ❌ SOURCES DÉSACTIVÉES (ne fonctionnent pas)
+    # =========================================================================
     {
-        'nom': 'OMS (WHO) Careers',
-        'url': 'https://www.who.int/careers/vacancies',
-        'parser': 'smart',           # Appelle ton SmartParser V2
-        'pays': 'GLOBAL',
-        'est_actif': True,
-        'require_pdf': False,
-        'use_js': True,              # Active le moteur JS (Playwright/Selenium)
-        'delay': 3,
+        'nom': 'Joffres.net',
+        'url': 'https://www.joffres.net/burkina-faso',
+        'parser': 'smart',
+        'pays': 'BF',
+        'est_actif': False,
+        'use_js': False,
+        'delay': 2,
     },
     {
-        'nom': 'World Bank Jobs',
-        'url': 'https://www.worldbank.org/en/about/jobs',
+        'nom': 'SONABEL Burkina',
+        'url': 'http://www.sonabel.bf/index.php/marches-publics',
         'parser': 'smart',
-        'pays': 'US',
-        'est_actif': True,
-        'require_pdf': False,
-        'use_js': True,
-        'delay': 4,
+        'pays': 'BF',
+        'est_actif': False,
+        'use_js': False,
+        'delay': 2,
     },
     {
-        'nom': 'UN Careers (Inspira)',
-        'url': 'https://careers.un.org/lbw/home.aspx',
+        'nom': 'UEMOA Appels d\'offres',
+        'url': 'https://www.uemoa.int/fr/appel-d-offre',
+        'parser': 'smart',
+        'pays': 'BF',
+        'est_actif': False,
+        'use_js': False,
+        'delay': 2,
+    },
+    {
+        'nom': 'UNICEF',
+        'url': 'https://www.unicef.org/supply/index_76578.html',
         'parser': 'smart',
         'pays': 'GLOBAL',
-        'est_actif': True,
-        'require_pdf': False,
-        'use_js': True,
-        'delay': 5,
-    }
+        'est_actif': False,
+        'use_js': False,
+        'delay': 2,
+    },
+    {
+        'nom': 'PNUD Burkina',
+        'url': 'https://burkinafaso.undp.org/content/burkinafaso/fr/home/operations.html',
+        'parser': 'smart',
+        'pays': 'BF',
+        'est_actif': False,
+        'use_js': False,
+        'delay': 2,
+    },
+    {
+        'nom': 'ARMP Burkina',
+        'url': 'http://www.armp.bf/',
+        'parser': 'smart',
+        'pays': 'BF',
+        'est_actif': False,
+        'use_js': False,
+        'delay': 2,
+    },
+    {
+        'nom': 'Marchés publics Sénégal',
+        'url': 'https://www.marchespublics.sn/',
+        'parser': 'smart',
+        'pays': 'SN',
+        'est_actif': False,
+        'use_js': False,
+        'delay': 2,
+    },
+    {
+        'nom': 'BAD',
+        'url': 'https://www.afdb.org/fr/projects-and-operations/procurement',
+        'parser': 'smart',
+        'pays': 'GLOBAL',
+        'est_actif': False,
+        'use_js': False,
+        'delay': 2,
+    },
+    {
+        'nom': 'ABF Burkina Faso',
+        'url': 'https://www.abfburkina.org/appels-a-projets/',
+        'parser': 'smart',
+        'pays': 'BF',
+        'est_actif': False,
+        'use_js': False,
+        'delay': 2,
+    },
 ]

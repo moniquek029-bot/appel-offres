@@ -3,24 +3,36 @@ import React, { useState, useEffect } from 'react';
 import JobCard from './JobCard';
 import { searchOffres } from '../services/api';
 
-const OfferList = () => {
+const OfferList = ({ filters = {}, currentPage = 1, onPageChange }) => {
   const [offers, setOffers] = useState([]);
-  const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   
-  const ITEMS_PER_PAGE = 10; // 10 offres par page
+  // ✅ MODIFICATION : 6 offres par page (3 lignes × 2 colonnes)
+  const ITEMS_PER_PAGE = 4;
 
   useEffect(() => {
     fetchOffers();
-  }, [currentPage]);
+  }, [currentPage, filters]);
 
   const fetchOffers = async () => {
     setLoading(true);
-    setOffers([]); // ✨ CORRECTION : Force la réinitialisation de la liste à l'écran pendant le chargement
+    setOffers([]);
     try {
-      const { results, count } = await searchOffres({ page: currentPage, page_size: ITEMS_PER_PAGE });
+      const params = { 
+        page: currentPage, 
+        page_size: ITEMS_PER_PAGE 
+      };
+      
+      if (filters.keyword) params.keyword = filters.keyword;
+      if (filters.pays) params.pays = filters.pays;
+      if (filters.domaine) params.domaine = filters.domaine;
+      if (filters.structure) params.structure = filters.structure;
+      if (filters.date_publication) params.date_publication = filters.date_publication;
+      if (filters.max_days) params.max_days = filters.max_days;
+
+      const { results, count } = await searchOffres(params);
       setOffers(Array.isArray(results) ? results : []);
       setTotalCount(count || 0);
       setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
@@ -33,16 +45,14 @@ const OfferList = () => {
   };
 
   const handlePageChange = (page) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (page >= 1 && page <= totalPages && typeof onPageChange === 'function') {
+      onPageChange(page);
     }
   };
 
-  // Générer les numéros de page à afficher
   const getPageNumbers = () => {
     const pages = [];
-    const maxVisible = 10; // Nombre maximum de pages visibles
+    const maxVisible = 10;
     
     if (totalPages <= maxVisible) {
       for (let i = 1; i <= totalPages; i++) pages.push(i);
@@ -66,6 +76,19 @@ const OfferList = () => {
     return pages;
   };
 
+  const getActiveFiltersSummary = () => {
+    const active = [];
+    if (filters.keyword) active.push(`Mot-clé: "${filters.keyword}"`);
+    if (filters.pays) active.push(`Pays: ${filters.pays}`);
+    if (filters.domaine) active.push(`Domaine: ${filters.domaine}`);
+    if (filters.structure) active.push(`Structure: ${filters.structure}`);
+    if (filters.date_publication) active.push(`Publié le: ${filters.date_publication}`);
+    if (filters.max_days) active.push(`Expire dans: ${filters.max_days} jours`);
+    return active;
+  };
+
+  const activeFilters = getActiveFiltersSummary();
+
   if (loading) {
     return (
       <div className="container py-5 text-center">
@@ -78,11 +101,22 @@ const OfferList = () => {
 
   return (
     <div className="container py-4">
-      {/* En-tête avec bouton de rafraîchissement manuel intégré */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <h2 className="mb-1">Appels d'offres disponibles</h2>
-          <p className="text-muted small mb-0">{totalCount} offre(s) enregistrée(s) au total</p>
+          <p className="text-muted small mb-0">
+            {totalCount} offre(s) trouvée(s)
+            {activeFilters.length > 0 && (
+              <span className="ms-2">
+                • Filtres actifs : {activeFilters.join(' | ')}
+              </span>
+            )}
+            {currentPage > 1 && (
+              <span className="ms-2 badge bg-secondary">
+                Page {currentPage}
+              </span>
+            )}
+          </p>
         </div>
         <button 
           className="btn btn-outline-primary btn-sm d-flex align-items-center gap-2"
@@ -93,35 +127,36 @@ const OfferList = () => {
         </button>
       </div>
       
-      {/* Grille des offres */}
+      {/* ✅ MODIFICATION : Grille 2 colonnes (col-md-6) */}
       <div className="row g-3">
         {offers.length > 0 ? (
           offers.map(offer => (
-            <div className="col-12" key={offer.id}>
+            // ✅ MODIFICATION : col-12 → col-md-6 (2 par ligne sur desktop, 1 sur mobile)
+            <div className="col-12 col-md-6" key={offer.id}>
               <JobCard offre={offer} />
             </div>
           ))
         ) : (
           <div className="col-12">
             <div className="alert alert-info text-center py-4">
-              Aucune offre disponible pour le moment. Lancez un scraping depuis l'administration.
+              {activeFilters.length > 0 
+                ? 'Aucune offre ne correspond à vos filtres. Essayez de les modifier.'
+                : 'Aucune offre disponible pour le moment. Lancez un scraping depuis l\'administration.'}
             </div>
           </div>
         )}
       </div>
 
-      {/* Navigation / Pagination */}
+      {/* Pagination */}
       {totalPages > 1 && (
         <nav className="mt-5" aria-label="Pagination des offres">
           <ul className="pagination justify-content-center flex-wrap">
-            {/* Page précédente */}
             <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
               <button className="page-link" onClick={() => handlePageChange(currentPage - 1)}>
                 ← Précédent
               </button>
             </li>
             
-            {/* Numéros de page */}
             {getPageNumbers().map((page, index) => (
               <li 
                 key={index} 
@@ -137,7 +172,6 @@ const OfferList = () => {
               </li>
             ))}
             
-            {/* Page suivante */}
             <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
               <button className="page-link" onClick={() => handlePageChange(currentPage + 1)}>
                 Suivant →

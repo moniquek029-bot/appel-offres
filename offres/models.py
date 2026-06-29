@@ -123,8 +123,8 @@ class SourceScraping(models.Model):
         return self.url_racine
     
     
-#================Appels Offres==============================================
-# =============================================================================
+# offres/models.py - Ajouter dans la classe AppelOffre
+
 class AppelOffre(models.Model):
     """
     Table centrale. Gère les offres scrapées ET saisies manuellement."""
@@ -135,8 +135,28 @@ class AppelOffre(models.Model):
         ('En cours', 'En cours'),
     ]
     
+    # ✅ NOUVEAU : Types d'offres
+    TYPE_OFFRE_CHOICES = [
+        ('APPEL_D_OFFRES', 'Appel d\'offres (RFQ/RFP)'),
+        ('APPEL_A_PROJETS', 'Appel à projets'),
+        ('MANIFESTATION_INTERET', 'Manifestation d\'intérêt (EOI)'),
+        ('RECRUTEMENT', 'Recrutement / Consultant'),
+        ('VENTE_AUX_ENCHERES', 'Vente aux enchères'),
+        ('AUTRE', 'Autre'),
+    ]
+    
     titre = models.CharField(max_length=300)
     organisme = models.CharField(max_length=200, verbose_name="Institution émettrice")
+    
+    # ✅ NOUVEAU : Type d'offre
+    type_offre = models.CharField(
+        max_length=50,
+        choices=TYPE_OFFRE_CHOICES,
+        default='APPEL_D_OFFRES',
+        verbose_name="Type d'offre",
+        help_text="Type d'offre (Appel d'offres, Appel à projets, etc.)",
+        db_index=True  # ✅ Index pour accélérer les filtres
+    )
     
     # ✅ MODIFICATION : Description maintenant optionnelle
     description = models.TextField(
@@ -225,6 +245,8 @@ class AppelOffre(models.Model):
             # ✅ NOUVEAU : Index pour optimiser les filtres par domaine
             models.Index(fields=['domaine']),
             models.Index(fields=['pays', 'domaine']),
+            # ✅ NOUVEAU : Index pour le type d'offre
+            models.Index(fields=['type_offre']),
         ]
 
     def __str__(self):
@@ -235,7 +257,10 @@ class AppelOffre(models.Model):
         """Vérifie si un PDF est disponible (fichier uploadé ou URL)"""
         return bool(self.fichier_pdf) or bool(self.url_tdr)
     
-
+    # ✅ Méthode utilitaire pour vérifier si c'est un vrai appel d'offres
+    def is_real_tender(self):
+        """Vérifie si l'offre est un vrai appel d'offres"""
+        return self.type_offre == 'APPEL_D_OFFRES'
 
 # =============================================================================
 # MODULE 4 : PROFILS - EXPERT (avec CV, compétences, etc.)

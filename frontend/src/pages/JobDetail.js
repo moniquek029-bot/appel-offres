@@ -1,11 +1,13 @@
 // src/pages/JobDetail.jsx - Version corrigée avec logique intelligente TDR/Redirection
+// + Persistance des filtres via l'historique du navigateur
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const JobDetail = () => {
   const { id } = useParams();
+  const navigate = useNavigate(); // ✅ AJOUTÉ pour la navigation intelligente
   const { user } = useAuth();
   const [offre, setOffre] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -29,6 +31,17 @@ const JobDetail = () => {
     };
     fetchOffre();
   }, [id]);
+
+  // ✅ NOUVELLE FONCTION : Retour intelligent qui préserve les filtres
+  const handleBack = () => {
+    // ✅ Si l'historique contient la page précédente (avec filtres), on y retourne
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      // Sinon, on va vers la liste des offres par défaut
+      navigate('/offres');
+    }
+  };
 
   const formatDate = (dateStr) => {
     if (!dateStr) return 'Non spécifiée';
@@ -133,10 +146,14 @@ const JobDetail = () => {
     return (
       <div className="container py-5">
         <div className="alert alert-danger">{error || 'Offre non trouvée'}</div>
-        <Link to="/" className="btn btn-outline-primary">
+        {/* ✅ MODIFIÉ : Bouton retour intelligent */}
+        <button 
+          onClick={handleBack}
+          className="btn btn-outline-primary"
+        >
           <i className="bi bi-arrow-left me-1"></i>
           Retour
-        </Link>
+        </button>
       </div>
     );
   }
@@ -147,10 +164,14 @@ const JobDetail = () => {
 
   return (
     <div className="container py-4">
-      <Link to="/" className="btn btn-outline-secondary mb-3">
+      {/* ✅ MODIFIÉ : Bouton retour qui préserve les filtres */}
+      <button 
+        onClick={handleBack}
+        className="btn btn-outline-secondary mb-3"
+      >
         <i className="bi bi-arrow-left me-1"></i>
         Retour aux offres
-      </Link>
+      </button>
       
       <div className="card shadow-sm">
         <div className="card-header text-white" style={{background: 'linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%)'}}>
@@ -272,19 +293,6 @@ const JobDetail = () => {
                       {docInfo.label}
                     </button>
                   )}
-                  
-                  {/* Info supplémentaire */}
-                  {/*<small className="text-muted">
-                    {docInfo.type === 'local_pdf' && (
-                      <><i className="bi bi-info-circle me-1"></i>Document stocké sur notre serveur</>
-                    )}
-                    {docInfo.type === 'external_pdf' && (
-                      <><i className="bi bi-info-circle me-1"></i>Document hébergé sur le site de l'organisme</>
-                    )}
-                    {docInfo.type === 'redirect' && (
-                      <><i className="bi bi-info-circle me-1"></i>Vous serez redirigé vers le site de l'organisme</>
-                    )}
-                  </small>*/}
                 </div>
               ) : (
                 //  UTILISATEUR NON CONNECTÉ : afficher message avec lien de connexion
@@ -315,38 +323,6 @@ const JobDetail = () => {
               </div>
             )}
           </div>
-
-          {/* Section Admin : informations de debug */}
-          {/*{isAdmin && (
-            <div className="mt-3 pt-3 border-top">
-              <h6 className="text-muted mb-2">
-                <i className="bi bi-gear-fill me-1"></i>
-                Informations techniques (Admin)
-              </h6>
-              <div className="small">
-                <div className="mb-1">
-                  <span className="badge bg-light text-dark me-2">fichier_pdf_url</span>
-                  <code>{offre.fichier_pdf_url || 'Aucun'}</code>
-                </div>
-                <div className="mb-1">
-                  <span className="badge bg-light text-dark me-2">url_tdr</span>
-                  <code>{offre.url_tdr || 'Aucun'}</code>
-                </div>
-                <div className="mb-1">
-                  <span className="badge bg-light text-dark me-2">url_source</span>
-                  <code className="text-break">{offre.url_source || 'Aucun'}</code>
-                </div>
-                {docInfo && (
-                  <div className="mt-2">
-                    <span className="badge bg-success me-2">Type détecté</span>
-                    <code>{docInfo.type}</code>
-                    <span className="ms-2 badge bg-info">URL finale</span>
-                    <code className="text-break ms-1">{docInfo.url}</code>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}*/}
         </div>
       </div>
     </div>

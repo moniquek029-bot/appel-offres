@@ -3,7 +3,7 @@ offres/views.py
 Vues avec contrôle d'accès par rôle et gestion des profils obligatoires.
 ✅ VERSION CORRIGÉE : Plus de doublons, scraping synchrone, imports organisés
 """
-from offres.utils.domain_keywords import get_domain_keywords
+from offres.utils.search_keywords import get_domain_keywords, get_country_codes
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.conf import settings
@@ -33,6 +33,8 @@ import logging
 from django.utils import timezone
 import traceback
 import os
+
+from rest_framework.pagination import PageNumberPagination
 
 from offres.scraping.tasks import run_scheduled_scraping_task
 
@@ -174,6 +176,13 @@ class ChangePasswordView(generics.UpdateAPIView):
 # =============================================================================
 # APPELS D'OFFRES - ACCÈS DIFFÉRENCIÉ
 
+# Classe de pagination personnalisée
+class CustomPagination(PageNumberPagination):
+    page_size = 4  # ✅ 4 offres par page
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class AppelOffreViewSet(viewsets.ModelViewSet):
     """
     Consultation et gestion des offres avec recherche avancée et filtres
@@ -182,9 +191,12 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
     serializer_class = AppelOffreSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     
+    # ✅ AJOUTER CETTE LIGNE
+    pagination_class = CustomPagination
+    
     filterset_fields = {
         'pays': ['exact'],
-        'domaine': ['exact'],  # ✅ AJOUTÉ
+        'domaine': ['exact'],
         'statut': ['exact'],
         'mode_acquisition': ['exact'],
         'date_publication': ['gte', 'lte'],
@@ -194,7 +206,8 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
     search_fields = ['titre', 'organisme', 'description']
     ordering_fields = ['date_publication', 'date_cloture', 'titre', 'date_scraping']
     ordering = ['-date_publication', '-date_scraping']
-
+    
+    
     def get_permissions(self):
         if self.action in ['list', 'retrieve', 'recent_offres', 'download_pdf']:
             permission_classes = [permissions.AllowAny]
@@ -203,15 +216,30 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
         
         return [permission() for permission in permission_classes]
     
+    # Dans offres/views.py - AppelOffreViewSet.get_queryset()
+
+    # offres/views.py - Modifier AppelOffreViewSet.get_queryset()
+
     def get_queryset(self):
         """Récupère le queryset avec filtres optimisés"""
-        queryset = AppelOffre.objects.all()
+        # ✅ PAR DÉFAUT : UNIQUEMENT LES APPELS D'OFFRES
+        queryset = AppelOffre.objects.filter(type_offre='APPEL_D_OFFRES')
 
+        # ✅ OPTION : Si l'admin veut voir tous les types
+        show_all = self.request.query_params.get('show_all', 'false')
+        if show_all.lower() == 'true':
+            queryset = AppelOffre.objects.all()
+    
+        # ✅ FILTRE PAR TYPE D'OFFRE (si spécifié)
+        type_offre = self.request.query_params.get('type_offre')
+        if type_offre:
+            queryset = queryset.filter(type_offre=type_offre)
+    
         # 1. STATUT
         statut = self.request.query_params.get('statut') or self.request.query_params.get('status')
         if statut:
             queryset = queryset.filter(statut=statut)
-
+    
         # 2. MOTS-CLÉS
         keyword = self.request.query_params.get('keyword') or self.request.query_params.get('search')
         if keyword:
@@ -220,23 +248,32 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                 Q(organisme__icontains=keyword) |
                 Q(description__icontains=keyword)
             )
-
-        # 3. PAYS
-        pays = self.request.query_params.get('pays') or self.request.query_params.get('country')
-        if pays:
-            queryset = queryset.filter(pays=pays)
-
-        # ✅ 4. DOMAINE - FILTRE DIRECT SUR LE CHAMP (plus de recherche par mots-clés)
+    
+        # 3. DOMAINE
         domaine = self.request.query_params.get('domaine') or self.request.query_params.get('categorie')
         if domaine:
-            # ✅ Filtrer directement sur le champ domaine
-            queryset = queryset.filter(domaine=domaine)
-            logger.info(f"🔍 Filtre domaine: '{domaine}' → {queryset.count()} offres")
-            print(f"\n{'='*60}")
-            print(f"🔍 FILTRE DOMAINE: '{domaine}'")
-            print(f"   Offres trouvées: {queryset.count()}")
-            print(f"{'='*60}\n")
-
+            if domaine.lower() in ['autres', 'non classifié', 'non_classifie']:
+                queryset = queryset.filter(
+                    Q(domaine__isnull=True) | 
+                    Q(domaine='') | 
+                    Q(domaine__iexact='autres') |
+                    Q(domaine__iexact='non classifié')
+                )
+            else:
+                queryset = queryset.filter(domaine__iexact=domaine)
+    
+        # 4. PAYS
+        pays = self.request.query_params.get('pays') or self.request.query_params.get('country')
+        if pays:
+            if len(pays) == 2 and pays.isalpha():
+                queryset = queryset.filter(pays=pays.upper())
+            else:
+                country_codes = get_country_codes(pays)
+                if country_codes:
+                    queryset = queryset.filter(pays__in=country_codes)
+                else:
+                    queryset = queryset.filter(pays=pays)
+    
         # 5. STRUCTURE
         structure = self.request.query_params.get('structure')
         if structure:
@@ -265,7 +302,7 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                     Q(organisme__icontains='PNUD') |
                     ~Q(pays='BF')
                 )
-
+    
         # 6. DATE DE PUBLICATION
         date_pub = self.request.query_params.get('date_publication')
         if date_pub:
@@ -274,7 +311,7 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(date_publication=date_obj)
             except (ValueError, TypeError):
                 pass
-
+    
         # 7. DATE DE CLÔTURE
         date_cloture = self.request.query_params.get('date_cloture')
         if date_cloture:
@@ -283,7 +320,7 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(date_cloture__lte=date_obj)
             except (ValueError, TypeError):
                 pass
-
+    
         # 8. MAX_DAYS
         max_days = self.request.query_params.get('max_days')
         if max_days:
@@ -297,10 +334,8 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                 )
             except (ValueError, TypeError):
                 pass
-           
+       
         return queryset.order_by('-date_publication', '-date_scraping')
-
-
 
     def create(self, request, *args, **kwargs):
         """

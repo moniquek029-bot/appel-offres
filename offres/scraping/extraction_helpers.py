@@ -1,45 +1,31 @@
 # offres/scraping/extraction_helpers.py
 """
 Helpers centralisés pour l'extraction des offres
-Utilisés par TOUS les parsers pour garantir la cohérence
+Version finale avec filtrage complet
 """
 import re
 import logging
 from datetime import date, datetime, timedelta
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
-from offres.scraping.constantes import detecter_domaine
+from offres.utils.search_keywords import detecter_domaine
 from offres.scraping.country_detector import detecter_pays_smart
+from offres.utils.offer_validator import is_valid_offer_title
 
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# 1. EXTRACTION UNIVERSELLE DES DATES
+# 1. PARSING UNIVERSEL DES DATES
 # =============================================================================
 
-# Patterns de dates courants (ordre important)
-DATE_PATTERNS = [
-    # Format ISO : 2026-06-29
-    (r'(\d{4}-\d{2}-\d{2})', '%Y-%m-%d'),
-    # Format UNDP : 29-Jun-26 ou 29-June-2026
-    (r'(\d{1,2}[-/]\s*[A-Za-z]{3,9}[-/]\s*\d{2,4})', None),
-    # Format français : 29/06/2026 ou 29-06-2026
-    (r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})', None),
-    # Format texte : "29 juin 2026", "29 Juin 2026"
-    (r'(\d{1,2}\s+[A-Za-zéû]+\s+\d{2,4})', None),
-]
-
-# Mapping des mois (FR + EN)
 MONTHS_MAP = {
-    # Français
     'janvier': 1, 'février': 2, 'fevrier': 2, 'mars': 3, 'avril': 4,
     'mai': 5, 'juin': 6, 'juillet': 7, 'août': 8, 'aout': 8,
     'septembre': 9, 'octobre': 10, 'novembre': 11, 'décembre': 12, 'decembre': 12,
-    # Anglais court
     'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
     'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
-    # Anglais long
     'january': 1, 'february': 2, 'march': 3, 'april': 4,
     'june': 6, 'july': 7, 'august': 8, 'september': 9,
     'october': 10, 'november': 11, 'december': 12,
@@ -47,56 +33,27 @@ MONTHS_MAP = {
 
 
 def parse_date_universelle(date_str: str) -> date | None:
-    """
-    Parse une date depuis n'importe quel format courant
-    Retourne un objet date ou None
-    """
+    """Parse une date depuis n'importe quel format courant"""
     if not date_str:
         return None
     
-    # Nettoyer la chaîne
     date_str = date_str.strip()
-    # Enlever l'heure et le fuseau horaire
     date_str = re.split(r'\s+\d{1,2}:\d{2}', date_str)[0].strip()
     date_str = re.split(r'\s*\(.*?\)', date_str)[0].strip()
     
     if not date_str:
         return None
     
-    # Essayer chaque pattern
-    for pattern, fmt in DATE_PATTERNS:
-        match = re.search(pattern, date_str, re.IGNORECASE)
-        if match:
-            date_text = match.group(1).strip()
-            
-            # Format ISO simple
-            if fmt == '%Y-%m-%d':
-                try:
-                    return datetime.strptime(date_text, fmt).date()
-                except ValueError:
-                    continue
-            
-            # Format avec mois en lettres (FR/EN)
-            if any(mois in date_text.lower() for mois in MONTHS_MAP.keys()):
-                result = _parse_date_with_month_name(date_text)
-                if result:
-                    return result
-            
-            # Format numérique DD/MM/YYYY ou DD-MM-YYYY
-            result = _parse_numeric_date(date_text)
-            if result:
-                return result
+    # Format ISO : 2026-06-29
+    match = re.search(r'(\d{4}-\d{2}-\d{2})', date_str)
+    if match:
+        try:
+            return datetime.strptime(match.group(1), '%Y-%m-%d').date()
+        except ValueError:
+            pass
     
-    logger.debug(f"⚠️ Date non reconnue: {date_str}")
-    return None
-
-
-def _parse_date_with_month_name(date_text: str) -> date | None:
-    """Parse une date avec nom de mois (ex: '29-Jun-26', '29 juin 2026')"""
-    # Normaliser les séparateurs
-    date_text = date_text.replace('/', '-').replace('  ', ' ').strip()
-    
-    # Pattern : 29-Jun-26 ou 29 Jun 2026
+    # Format avec mois en lettres
+    date_text = date_str.replace('/', '-').replace('  ', ' ').strip()
     match = re.match(
         r'(\d{1,2})[-\s]+([A-Za-zéû]+)[-\s]+(\d{2,4})',
         date_text,
@@ -107,7 +64,6 @@ def _parse_date_with_month_name(date_text: str) -> date | None:
         month_str = match.group(2).lower()
         year = int(match.group(3))
         
-        # Année sur 2 chiffres → 4 chiffres
         if year < 100:
             year += 2000 if year < 50 else 1900
         
@@ -118,15 +74,8 @@ def _parse_date_with_month_name(date_text: str) -> date | None:
             except ValueError:
                 pass
     
-    return None
-
-
-def _parse_numeric_date(date_text: str) -> date | None:
-    """Parse une date numérique DD/MM/YYYY ou DD-MM-YYYY"""
-    # Normaliser
-    date_text = date_text.replace('/', '-').strip()
-    
-    match = re.match(r'(\d{1,2})-(\d{1,2})-(\d{2,4})', date_text)
+    # Format numérique
+    match = re.match(r'(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})', date_str)
     if match:
         day = int(match.group(1))
         month = int(match.group(2))
@@ -144,144 +93,14 @@ def _parse_numeric_date(date_text: str) -> date | None:
     return None
 
 
-def extraire_date_cloture(soup: BeautifulSoup, texte_complet: str = "") -> date | None:
-    """
-    Extrait la date de clôture depuis une page HTML
-    Cherche dans cet ordre :
-    1. Patterns explicites (Deadline, Date limite, etc.)
-    2. Dates dans le texte complet
-    """
-    if not soup:
-        return None
-    
-    # Keywords pour identifier la date de clôture
-    deadline_keywords = [
-        'deadline', 'date limite', 'date de clôture', 'date de cloture',
-        'closing date', 'submission deadline', 'date de soumission',
-        'expiration', 'expire le', 'expires on', 'due date',
-        'fecha límite', 'plazo', 'closing',
-    ]
-    
-    # Chercher les éléments avec ces keywords
-    for elem in soup.find_all(['td', 'th', 'dt', 'dd', 'div', 'span', 'strong', 'b', 'p', 'li']):
-        text = elem.get_text(strip=True).lower()
-        
-        # Vérifier si cet élément contient un keyword de deadline
-        if any(kw in text for kw in deadline_keywords):
-            # Chercher la date dans cet élément ou son voisin
-            date_candidates = []
-            
-            # Dans l'élément lui-même
-            date_candidates.append(elem.get_text())
-            
-            # Dans les éléments voisins
-            for sibling in [elem.find_next_sibling(), elem.find_parent()]:
-                if sibling:
-                    date_candidates.append(sibling.get_text())
-            
-            # Essayer de parser chaque candidat
-            for candidate in date_candidates:
-                if not candidate:
-                    continue
-                
-                # Chercher toutes les dates dans le texte
-                date_matches = re.findall(
-                    r'\d{1,2}[-/\s]+[A-Za-zéû]+[-/\s]+\d{2,4}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}-\d{2}-\d{2}',
-                    candidate,
-                    re.IGNORECASE
-                )
-                
-                for date_match in date_matches:
-                    parsed = parse_date_universelle(date_match)
-                    if parsed:
-                        # Vérifier que c'est une date future ou récente (pas une vieille date)
-                        if parsed >= date.today() - timedelta(days=30):
-                            return parsed
-    
-    # Fallback : chercher dans le texte complet
-    if texte_complet:
-        date_matches = re.findall(
-            r'\d{1,2}[-/\s]+[A-Za-zéû]+[-/\s]+\d{2,4}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}-\d{2}-\d{2}',
-            texte_complet,
-            re.IGNORECASE
-        )
-        for date_match in date_matches:
-            parsed = parse_date_universelle(date_match)
-            if parsed and parsed >= date.today() - timedelta(days=30):
-                return parsed
-    
-    return None
-
-
 # =============================================================================
-# 2. EXTRACTION UNIVERSELLE DU PAYS
+# 2. EXTRACTION UNIFIÉE DE TOUS LES CHAMPS
 # =============================================================================
 
-def extraire_pays(soup: BeautifulSoup, texte_complet: str = "", url: str = "", pays_defaut: str = 'BF') -> str:
+def extract_all_details(soup: BeautifulSoup, url: str = "", pays_defaut: str = 'BF', 
+                       titre: str = "", description: str = "") -> dict:
     """
-    Extrait le pays depuis une page HTML
-    Utilise le détecteur intelligent existant
-    """
-    if not texte_complet and soup:
-        texte_complet = soup.get_text()[:3000]
-    
-    return detecter_pays_smart(texte_complet, url=url, pays_defaut=pays_defaut)
-
-
-# =============================================================================
-# 3. EXTRACTION UNIVERSELLE DU DOMAINE
-# =============================================================================
-
-def extraire_domaine(soup: BeautifulSoup = None, texte_complet: str = "", category_text: str = "") -> str:
-    """
-    Extrait le domaine depuis une page HTML
-    """
-    # Si on a un texte de catégorie explicite (ex: UNDP), l'utiliser en priorité
-    if category_text:
-        domaine = detecter_domaine(category_text)
-        if domaine != 'Autres':
-            return domaine
-    
-    # Sinon, utiliser le texte complet
-    if not texte_complet and soup:
-        texte_complet = soup.get_text()[:3000]
-    
-    return detecter_domaine(texte_complet)
-
-
-# =============================================================================
-# 4. VÉRIFICATION OFFRE EXPIRÉE
-# =============================================================================
-
-def is_offer_expired(date_cloture) -> bool:
-    """
-    Vérifie si une offre est expirée
-    Accepte : date, datetime, string, None
-    """
-    if not date_cloture:
-        return False  # Pas de date = on ne peut pas dire qu'elle est expirée
-    
-    # Convertir en date si nécessaire
-    if isinstance(date_cloture, str):
-        date_cloture = parse_date_universelle(date_cloture)
-    elif isinstance(date_cloture, datetime):
-        date_cloture = date_cloture.date()
-    
-    if not date_cloture:
-        return False
-    
-    # Une offre est expirée si sa date de clôture est STRICTEMENT avant aujourd'hui
-    return date_cloture < date.today()
-
-
-# =============================================================================
-# 5. HELPER POUR EXTRAIRE TOUS LES CHAMPS D'UNE PAGE DE DÉTAIL
-# =============================================================================
-
-def extract_all_details(soup: BeautifulSoup, url: str = "", pays_defaut: str = 'BF') -> dict:
-    """
-    Extrait tous les champs d'une page de détail en une seule passe
-    Retourne un dict avec : pays, date_publication, date_cloture, domaine, url_tdr
+    Extrait tous les champs d'une page de détail
     """
     result = {
         'pays': pays_defaut,
@@ -295,16 +114,43 @@ def extract_all_details(soup: BeautifulSoup, url: str = "", pays_defaut: str = '
     if not soup:
         return result
     
-    # Récupérer le texte complet
     result['texte_complet'] = soup.get_text()[:5000]
+    texte_pour_domaine = f"{titre} {description} {result['texte_complet']}"
     
-    # Parcourir tous les éléments une seule fois
+    # Patterns spécifiques pour les dates
+    date_patterns = [
+        r'deadline[:\s]+(\d{1,2}[-\s]+[A-Za-z]{3,9}[-\s]+\d{2,4})',
+        r'deadline[:\s]+(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4})',
+        r'posted[:\s]+(\d{1,2}[-\s]+[A-Za-z]{3,9}[-\s]+\d{2,4})',
+        r'posted[:\s]+(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4})',
+        r'published\s+on[:\s]+(\d{1,2}[-\s]+[A-Za-z]{3,9}[-\s]+\d{2,4})',
+        r'date\s+limite[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
+        r'date\s+de\s+cl[oô]ture[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
+    ]
+    
+    texte_complet = result['texte_complet']
+    
+    # Extraire les dates avec des patterns spécifiques
+    for pattern in date_patterns:
+        match = re.search(pattern, texte_complet, re.IGNORECASE)
+        if match:
+            date_str = match.group(1).strip()
+            parsed_date = parse_date_universelle(date_str)
+            if parsed_date:
+                if 'deadline' in pattern.lower() or 'clôture' in pattern.lower() or 'limite' in pattern.lower():
+                    if not result['date_cloture']:
+                        result['date_cloture'] = parsed_date
+                else:
+                    if not result['date_publication']:
+                        result['date_publication'] = parsed_date
+    
+    # Parcourir les éléments
     for elem in soup.find_all(['td', 'th', 'dt', 'dd', 'div', 'span', 'strong', 'b', 'p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
         text = elem.get_text(strip=True)
         text_lower = text.lower()
         
         # PAYS
-        if re.search(r'\b(office|country|pays|país|ubicaci[oó]n|location)\b', text_lower):
+        if re.search(r'\b(office|country|pays)\b', text_lower):
             next_elem = elem.find_next_sibling()
             if next_elem:
                 next_text = next_elem.get_text(strip=True)
@@ -313,26 +159,8 @@ def extract_all_details(soup: BeautifulSoup, url: str = "", pays_defaut: str = '
                     if detected != pays_defaut:
                         result['pays'] = detected
         
-        # DATE DE CLÔTURE
-        elif re.search(r'\b(deadline|date limite|date de cl[ôo]ture|closing date|fecha l[ií]mite)\b', text_lower):
-            next_elem = elem.find_next_sibling()
-            if next_elem:
-                next_text = next_elem.get_text(strip=True)
-                parsed = parse_date_universelle(next_text)
-                if parsed:
-                    result['date_cloture'] = parsed
-        
-        # DATE DE PUBLICATION
-        elif re.search(r'\b(published on|posted|publi[éc] le|date de publication|fecha de publicaci[oó]n)\b', text_lower):
-            next_elem = elem.find_next_sibling()
-            if next_elem:
-                next_text = next_elem.get_text(strip=True)
-                parsed = parse_date_universelle(next_text)
-                if parsed:
-                    result['date_publication'] = parsed
-        
-        # DOMAINE / CATÉGORIE
-        elif re.search(r'\b(category|type|sector|procurement type|domaine|categor[ií]a)\b', text_lower):
+        # DOMAINE
+        elif re.search(r'\b(category|type|sector|domaine)\b', text_lower):
             next_elem = elem.find_next_sibling()
             if next_elem:
                 next_text = next_elem.get_text(strip=True)
@@ -341,12 +169,11 @@ def extract_all_details(soup: BeautifulSoup, url: str = "", pays_defaut: str = '
                     if detected != 'Autres':
                         result['domaine'] = detected
         
-        # PDF / TDR
+        # PDF
         elif elem.name == 'a' and elem.get('href'):
             href = elem.get('href', '').lower()
             link_text = text.lower()
-            if '.pdf' in href or any(kw in link_text for kw in ['download', 'télécharger', 'tdr', 'terms of reference']):
-                from urllib.parse import urljoin
+            if '.pdf' in href or any(kw in link_text for kw in ['download', 'télécharger', 'tdr']):
                 result['url_tdr'] = urljoin(url, elem.get('href'))
     
     # Fallbacks
@@ -354,13 +181,193 @@ def extract_all_details(soup: BeautifulSoup, url: str = "", pays_defaut: str = '
         result['date_publication'] = date.today()
     
     if not result['date_cloture']:
-        # Essayer d'extraire depuis le texte complet
-        result['date_cloture'] = extraire_date_cloture(soup, result['texte_complet'])
+        result['date_cloture'] = _extract_deadline_from_text(texte_complet)
     
     if not result['date_cloture']:
         result['date_cloture'] = date.today() + timedelta(days=30)
     
     if result['domaine'] == 'Autres':
-        result['domaine'] = detecter_domaine(result['texte_complet'])
+        result['domaine'] = detecter_domaine(texte_pour_domaine)
     
     return result
+
+
+def _extract_deadline_from_text(texte: str):
+    """Extrait la date limite depuis un texte complet"""
+    date_patterns = [
+        r'\d{1,2}[-\s]+[A-Za-z]{3,9}[-\s]+\d{2,4}',
+        r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',
+    ]
+    
+    for pattern in date_patterns:
+        matches = re.findall(pattern, texte, re.IGNORECASE)
+        for match in matches:
+            parsed = parse_date_universelle(match)
+            if parsed and parsed >= date.today():
+                return parsed
+    
+    return None
+
+
+# =============================================================================
+# 3. VÉRIFICATION OFFRE EXPIRÉE
+# =============================================================================
+
+def is_offer_expired(date_cloture) -> bool:
+    """Vérifie si une offre est expirée"""
+    if not date_cloture:
+        return False
+    
+    if isinstance(date_cloture, str):
+        date_cloture = parse_date_universelle(date_cloture)
+    elif isinstance(date_cloture, datetime):
+        date_cloture = date_cloture.date()
+    
+    if not date_cloture:
+        return False
+    
+    return date_cloture < date.today()
+
+
+# =============================================================================
+# 4. VÉRIFICATION DATE IRRÉALISTE
+# =============================================================================
+
+def is_date_unrealistic(date_cloture) -> bool:
+    """Vérifie si une date de clôture est irréaliste (> 3 ans)"""
+    if not date_cloture:
+        return False
+    
+    if isinstance(date_cloture, str):
+        date_cloture = parse_date_universelle(date_cloture)
+    elif isinstance(date_cloture, datetime):
+        date_cloture = date_cloture.date()
+    
+    if not date_cloture:
+        return False
+    
+    three_years_later = date.today() + timedelta(days=365*3)
+    return date_cloture > three_years_later
+
+
+# =============================================================================
+# 5. VÉRIFICATION OFFRE TROP ANCIENNE
+# =============================================================================
+
+def is_offer_too_old(date_publication) -> bool:
+    """Vérifie si une offre est trop ancienne (> 2 ans)"""
+    if not date_publication:
+        return False
+    
+    if isinstance(date_publication, str):
+        date_publication = parse_date_universelle(date_publication)
+    elif isinstance(date_publication, datetime):
+        date_publication = date_publication.date()
+    
+    if not date_publication:
+        return False
+    
+    two_years_ago = date.today() - timedelta(days=365*2)
+    return date_publication < two_years_ago
+
+
+# =============================================================================
+# 6. VALIDATION COMPLÈTE D'UNE OFFRE
+# =============================================================================
+
+def is_offer_valid(offre: dict) -> tuple[bool, str]:
+    """
+    Valide une offre complète
+    Retourne (is_valid, reason)
+    """
+    titre = offre.get('titre', '')
+    date_cloture = offre.get('date_cloture')
+    date_publication = offre.get('date_publication')
+    
+    # 1. Vérifier le titre
+    if not is_valid_offer_title(titre):
+        return False, f"Titre invalide: {titre[:50]}"
+    
+    # 2. Vérifier si expirée
+    if is_offer_expired(date_cloture):
+        return False, f"Expirée: {date_cloture}"
+    
+    # 3. Vérifier date irréaliste
+    if is_date_unrealistic(date_cloture):
+        return False, f"Date irréaliste: {date_cloture}"
+    
+    # 4. Vérifier offre trop ancienne
+    if is_offer_too_old(date_publication):
+        return False, f"Trop ancienne: {date_publication}"
+    
+    return True, "Valide"
+
+
+# offres/scraping/extraction_helpers.py - Remplacer extract_pdf_url
+
+# À la fin de offres/scraping/extraction_helpers.py
+
+def extract_pdf_url(soup: BeautifulSoup, base_url: str) -> str | None:
+    """
+    Extrait l'URL du PDF/TDR depuis une page HTML
+    Retourne la meilleure URL trouvée ou None
+    """
+    if not soup:
+        return None
+    
+    candidats = []
+    
+    # Stratégie 1 : Liens directs vers PDF
+    for link in soup.find_all('a', href=True):
+        href = link['href'].strip()
+        text = link.get_text(strip=True).lower()
+        
+        # Liens avec extension .pdf
+        if href.lower().endswith('.pdf'):
+            full_url = urljoin(base_url, href)
+            # Exclure les faux PDFs (logos, icônes)
+            if not any(x in href.lower() for x in ['logo', 'icon', 'favicon', 'header', 'footer']):
+                candidats.append((100, full_url, 'pdf_direct'))
+        
+        # Liens avec mots-clés de téléchargement
+        elif any(kw in text for kw in [
+            'télécharger', 'telecharger', 'download', 'tdr',
+            'termes de référence', 'terms of reference',
+            'cahier des charges', 'dossier de consultation',
+            'document', 'pièce jointe', 'annexe'
+        ]):
+            if not href.startswith('#') and not href.startswith('javascript:'):
+                full_url = urljoin(base_url, href)
+                score = 80
+                if 'tdr' in text or 'termes de référence' in text:
+                    score = 95
+                candidats.append((score, full_url, 'mot_cle'))
+    
+    # Stratégie 2 : Chercher dans les boutons
+    for button in soup.find_all(['button', 'input']):
+        text = button.get_text(strip=True).lower() if button.name == 'button' else button.get('value', '').lower()
+        onclick = button.get('onclick', '').lower()
+        
+        if any(kw in text or kw in onclick for kw in ['download', 'pdf', 'tdr']):
+            # Chercher le lien associé
+            parent = button.find_parent('a')
+            if parent and parent.get('href'):
+                full_url = urljoin(base_url, parent['href'])
+                candidats.append((70, full_url, 'button'))
+    
+    # Stratégie 3 : Chercher dans les iframes ou embeds
+    for embed in soup.find_all(['iframe', 'embed']):
+        src = embed.get('src', '')
+        if src and '.pdf' in src.lower():
+            full_url = urljoin(base_url, src)
+            candidats.append((60, full_url, 'embed'))
+    
+    # Trier par score et retourner le meilleur
+    if candidats:
+        candidats.sort(key=lambda x: x[0], reverse=True)
+        best = candidats[0]
+        logger.info(f"   📄 PDF trouvé: {best[1][:80]} (score: {best[0]}, type: {best[2]})")
+        return best[1]
+    
+    logger.debug("   ⚠️ Aucun PDF trouvé sur la page")
+    return None
