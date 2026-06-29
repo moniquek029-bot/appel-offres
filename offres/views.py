@@ -174,11 +174,9 @@ class ChangePasswordView(generics.UpdateAPIView):
 # =============================================================================
 # APPELS D'OFFRES - ACCÈS DIFFÉRENCIÉ
 
-
 class AppelOffreViewSet(viewsets.ModelViewSet):
     """
     Consultation et gestion des offres avec recherche avancée et filtres
-   
     """
     queryset = AppelOffre.objects.all()
     serializer_class = AppelOffreSerializer
@@ -186,6 +184,7 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
     
     filterset_fields = {
         'pays': ['exact'],
+        'domaine': ['exact'],  # ✅ AJOUTÉ
         'statut': ['exact'],
         'mode_acquisition': ['exact'],
         'date_publication': ['gte', 'lte'],
@@ -197,34 +196,23 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
     ordering = ['-date_publication', '-date_scraping']
 
     def get_permissions(self):
-        """
-        Permissions différenciées selon l'action
-        - Lecture : Public
-        - Écriture : Admin uniquement
-        """
         if self.action in ['list', 'retrieve', 'recent_offres', 'download_pdf']:
-            # Actions publiques
             permission_classes = [permissions.AllowAny]
         else:
-            # Actions réservées aux admins
             permission_classes = [permissions.IsAdminUser]
         
         return [permission() for permission in permission_classes]
+    
     def get_queryset(self):
         """Récupère le queryset avec filtres optimisés"""
-    
         queryset = AppelOffre.objects.all()
 
-        # =========================================================================
-    # 1. STATUT
-        # =========================================================================
+        # 1. STATUT
         statut = self.request.query_params.get('statut') or self.request.query_params.get('status')
         if statut:
             queryset = queryset.filter(statut=statut)
 
-        # =========================================================================
-     # 2. MOTS-CLÉS (recherche simple, pas multilingue pour éviter les lenteurs)
-     # =========================================================================
+        # 2. MOTS-CLÉS
         keyword = self.request.query_params.get('keyword') or self.request.query_params.get('search')
         if keyword:
             queryset = queryset.filter(
@@ -233,41 +221,26 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                 Q(description__icontains=keyword)
             )
 
-        # =========================================================================
-    # 3. PAYS
-        # =========================================================================
+        # 3. PAYS
         pays = self.request.query_params.get('pays') or self.request.query_params.get('country')
         if pays:
             queryset = queryset.filter(pays=pays)
 
-        # =========================================================================
-        # 4. DOMAINE - VERSION OPTIMISÉE ✅
-        # =========================================================================
+        # ✅ 4. DOMAINE - FILTRE DIRECT SUR LE CHAMP (plus de recherche par mots-clés)
         domaine = self.request.query_params.get('domaine') or self.request.query_params.get('categorie')
         if domaine:
-            try:
-                keywords = get_domain_keywords(domaine)
-            
-                # Créer UN SEUL Q object avec tous les mots-clés
-                q_objects = Q()
-                for kw in keywords:
-                    q_objects |= Q(titre__icontains=kw) | Q(description__icontains=kw)
-            
-                queryset = queryset.filter(q_objects)
-            except ImportError:
-                # Fallback simple si le module n'existe pas
-                queryset = queryset.filter(
-                    Q(titre__icontains=domaine) | Q(description__icontains=domaine)
-                )
+            # ✅ Filtrer directement sur le champ domaine
+            queryset = queryset.filter(domaine=domaine)
+            logger.info(f"🔍 Filtre domaine: '{domaine}' → {queryset.count()} offres")
+            print(f"\n{'='*60}")
+            print(f"🔍 FILTRE DOMAINE: '{domaine}'")
+            print(f"   Offres trouvées: {queryset.count()}")
+            print(f"{'='*60}\n")
 
-        # =========================================================================
-        # 5. STRUCTURE / TYPE DE STRUCTURE
-        # =========================================================================
+        # 5. STRUCTURE
         structure = self.request.query_params.get('structure')
-
         if structure:
             if structure == 'nationale':
-                # Structures nationales (Burkina Faso, gouvernements locaux, etc.)
                 queryset = queryset.filter(
                     Q(organisme__icontains='Gouvernement') |
                     Q(organisme__icontains='Ministère') |
@@ -276,7 +249,6 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                     Q(pays='BF')
                 )
             elif structure == 'internationale':
-                # Structures internationales (ONU, Banque Mondiale, etc.)
                 queryset = queryset.filter(
                     Q(organisme__icontains='UN') |
                     Q(organisme__icontains='ONU') |
@@ -291,11 +263,10 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                     Q(organisme__icontains='WHO') |
                     Q(organisme__icontains='UNDP') |
                     Q(organisme__icontains='PNUD') |
-                    ~Q(pays='BF')  # Exclure les offres purement nationales
+                    ~Q(pays='BF')
                 )
-        # =========================================================================
-    # 6. DATE DE PUBLICATION
-        # =========================================================================
+
+        # 6. DATE DE PUBLICATION
         date_pub = self.request.query_params.get('date_publication')
         if date_pub:
             try:
@@ -304,9 +275,7 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
             except (ValueError, TypeError):
                 pass
 
-        # =========================================================================
-    # 7. DATE DE CLÔTURE
-        # =========================================================================
+        # 7. DATE DE CLÔTURE
         date_cloture = self.request.query_params.get('date_cloture')
         if date_cloture:
             try:
@@ -315,9 +284,7 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
             except (ValueError, TypeError):
                 pass
 
-        # =========================================================================
-    # 8. MAX_DAYS
-        # =========================================================================
+        # 8. MAX_DAYS
         max_days = self.request.query_params.get('max_days')
         if max_days:
             try:
@@ -332,6 +299,8 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                 pass
            
         return queryset.order_by('-date_publication', '-date_scraping')
+
+
 
     def create(self, request, *args, **kwargs):
         """
@@ -446,6 +415,8 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
             {'error': 'Aucun PDF disponible pour cette offre'},
             status=status.HTTP_404_NOT_FOUND
         )
+
+
 # =============================================================================
 # ESPACE EXPERT - DASHBOARD
 # =============================================================================

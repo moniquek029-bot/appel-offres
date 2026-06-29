@@ -78,6 +78,7 @@ class Utilisateur(AbstractUser):
 # MODULE 2 : VEILLE ET COLLECTE AUTOMATISÉE
 # =============================================================================
 
+# offres/models.py
 class SourceScraping(models.Model):
     nom = models.CharField(max_length=100, verbose_name="Nom du site source")
     url_racine = models.URLField(verbose_name="Lien de la page d'accueil")
@@ -88,6 +89,27 @@ class SourceScraping(models.Model):
     updated_at = models.DateTimeField(auto_now=True, null=True)
     pays = models.CharField(max_length=10, default='BF', blank=True)
     
+    # ✅ NOUVEAUX CHAMPS POUR L'ORCHESTRATEUR
+    parser = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True,
+        verbose_name="Type de parser",
+        help_text="Laisser vide pour détection automatique. Options: undp, unfpa, agetib, sonabel, uemoa, joffres, smart"
+    )
+    
+    use_js = models.BooleanField(
+        default=False,
+        verbose_name="Utiliser Selenium (JavaScript)",
+        help_text="Activer si le site nécessite JavaScript pour afficher les offres"
+    )
+    
+    delay = models.IntegerField(
+        default=2,
+        verbose_name="Délai entre requêtes (secondes)",
+        help_text="Temps d'attente entre chaque page pour éviter le blocage"
+    )
+    
     class Meta:
         verbose_name = "Source de scraping"
         verbose_name_plural = "Sources de scraping"
@@ -95,10 +117,13 @@ class SourceScraping(models.Model):
     
     def __str__(self):
         return self.nom
-
-
-# =============================================================================
-# MODULE 3 : CONSULTATION ET RECHERCHE D'OFFRES
+    
+    def get_url(self):
+        """Retourne l'URL (compatibilité avec l'orchestrateur)"""
+        return self.url_racine
+    
+    
+#================Appels Offres==============================================
 # =============================================================================
 class AppelOffre(models.Model):
     """
@@ -126,6 +151,17 @@ class AppelOffre(models.Model):
         default='BF',
         help_text="Code pays ou region (BF, SN, MULTI, REGIONAL, et.)"
     )
+    
+    # ✅ NOUVEAU : Domaine de l'offre (IT, Santé, Construction, etc.)
+    domaine = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="Domaine d'activité",
+        help_text="Domaine de l'offre (IT & Digital, Santé & Médical, Ingénierie & Construction, etc.)",
+        db_index=True  # ✅ Index pour accélérer les filtres
+    )
+    
     date_publication = models.DateField()
     date_cloture = models.DateField()
     
@@ -186,6 +222,9 @@ class AppelOffre(models.Model):
         indexes = [
             models.Index(fields=['statut', 'date_cloture']),
             models.Index(fields=['pays', 'statut']),
+            # ✅ NOUVEAU : Index pour optimiser les filtres par domaine
+            models.Index(fields=['domaine']),
+            models.Index(fields=['pays', 'domaine']),
         ]
 
     def __str__(self):
@@ -195,6 +234,9 @@ class AppelOffre(models.Model):
     def has_pdf(self):
         """Vérifie si un PDF est disponible (fichier uploadé ou URL)"""
         return bool(self.fichier_pdf) or bool(self.url_tdr)
+    
+
+
 # =============================================================================
 # MODULE 4 : PROFILS - EXPERT (avec CV, compétences, etc.)
 # =============================================================================

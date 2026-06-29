@@ -127,47 +127,25 @@ class AppelOffreAdmin(admin.ModelAdmin):
 
 @admin.register(SourceScraping)
 class SourceScrapingAdmin(admin.ModelAdmin):
-    list_display = ('nom', 'url_racine', 'frequence_maj', 'est_actif', 'last_scraped')
-    list_filter = ('est_actif',)
-    search_fields = ('nom', 'url_racine')
-    readonly_fields = ('last_scraped', 'created_at', 'updated_at')
+    list_display = ['nom', 'url_racine', 'pays', 'parser', 'use_js', 'delay', 'est_actif', 'last_scraped']
+    list_filter = ['est_actif', 'pays', 'parser']
+    search_fields = ['nom', 'url_racine']
+    list_editable = ['est_actif', 'delay', 'use_js']
     
-    actions = ['lancer_scraping_selection']
-    
-    @admin.action(
-        description="🚀 Lancer le scraping pour les sources sélectionnées",
-        permissions=['change']
+    fieldsets = (
+        ('Informations générales', {
+            'fields': ('nom', 'url_racine', 'pays', 'est_actif')
+        }),
+        ('Configuration du scraping', {
+            'fields': ('parser', 'use_js', 'delay', 'frequence_maj')
+        }),
+        ('Métadonnées', {
+            'fields': ('last_scraped', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
     )
-    def lancer_scraping_selection(self, request, queryset):
-        """Action admin : Lance immédiatement le scraping pour les sources cochées."""
-        try:
-            from offres.scraping.tasks import run_scheduled_scraping_task
-            
-            count = 0
-            for source in queryset:
-                if source.est_actif:
-                    run_scheduled_scraping_task(source_id=source.id)  # Appel direct, pas .delay()
-                    count += 1
-            
-            if count > 0:
-                self.message_user(
-                    request,
-                    f"✅ Scraping lancé pour {count} source(s) active(s). "
-                    f"Vérifiez les logs du worker Celery.",
-                    level="success"
-                )
-            else:
-                self.message_user(
-                    request,
-                    "⚠️ Aucune source active sélectionnée.",
-                    level="warning"
-                )
-        except ImportError:
-            self.message_user(
-                request,
-                "❌ Erreur: Module de scraping non disponible",
-                level="error"
-            )
+    
+    readonly_fields = ['last_scraped', 'created_at', 'updated_at']
 
 
 # =============================================================================

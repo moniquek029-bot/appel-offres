@@ -5,6 +5,7 @@ import logging
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 import urllib3
+from offres.scraping.extraction_helpers import is_offer_expired, extract_all_details
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -123,3 +124,47 @@ def validate_site(self) -> dict:
             'score': 0,
             'error': str(e)
         }
+    
+# Dans la classe BaseScraper, ajoutez ces méthodes :
+
+
+def filter_expired_offers(self, offres: list[dict]) -> list[dict]:
+    """
+    Filtre les offres expirées AVANT sauvegarde
+    Log chaque offre rejetée
+    """
+    offres_valides = []
+    rejected_count = 0
+    
+    for offre in offres:
+        date_cloture = offre.get('date_cloture')
+        
+        if is_offer_expired(date_cloture):
+            rejected_count += 1
+            logger.info(f"   ⏭️ Offre EXPIRÉE rejetée : {offre.get('titre', '')[:50]}... (clôture: {date_cloture})")
+            continue
+        
+        offres_valides.append(offre)
+    
+    if rejected_count > 0:
+        logger.info(f"   📊 {rejected_count} offre(s) expirée(s) rejetée(s), {len(offres_valides)} conservée(s)")
+    
+    return offres_valides
+
+def extract_details_unified(self, detail_url: str) -> dict:
+    """
+    Extrait tous les détails d'une page en utilisant les helpers centralisés
+    """
+    try:
+        soup = self.fetch_page(detail_url)
+        if not soup:
+            return {}
+        
+        return extract_all_details(
+            soup, 
+            url=detail_url, 
+            pays_defaut=self.pays_defaut
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Erreur extraction détails: {e}")
+        return {}

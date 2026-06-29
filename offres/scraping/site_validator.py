@@ -96,7 +96,7 @@ MOTS_CLES_REJET = [
     'podcast',
     'forum', 'discussion',
     'commentaire', 'comment',
-    'earthquake', 'flood', 'cyclone', 'outbreak',  # ✅ Catastrophes naturelles (ReliefWeb)
+    'earthquake', 'flood', 'cyclone', 'outbreak',
     'tsunami', 'landslide', 'drought', 'famine',
     'cholera', 'ebola', 'measles', 'dengue', 'diphtheria',
     'press release', 'communiqué de presse',
@@ -279,7 +279,7 @@ class SiteValidator:
         # Mots-clés de rejet
         for kw in MOTS_CLES_REJET:
             count = text.count(kw.lower())
-            if count >= 3:  # Seulement si très fréquent
+            if count >= 5:  # ✅ AUGMENTÉ : Seulement si TRÈS fréquent (5+ au lieu de 3)
                 self.score -= 5
                 self.rejection_reasons.append(f"Contenu non-offre: '{kw}' ({count}x)")
         
@@ -344,69 +344,57 @@ class SiteValidator:
 # =============================================================================
 
 def validate_site(html_content: str, url: str = None) -> dict:
-    """
-    Fonction simplifiée pour valider un site
-    """
+    """Fonction simplifiée pour valider un site"""
     validator = SiteValidator(html_content=html_content, url=url)
     return validator.validate()
 
 
 def validate_page(soup: BeautifulSoup, url: str = None) -> dict:
-    """
-    Valide une page déjà parsée
-    """
+    """Valide une page déjà parsée"""
     validator = SiteValidator(soup=soup, url=url)
     return validator.validate()
+
 
 def is_valid_offer_title(title: str) -> bool:
     """
     Vérifie si un titre correspond à un appel d'offres
-    Version RENFORCÉE avec détection stricte
+    ✅ VERSION AMÉLIORÉE avec plus de mots-clés et logs
     """
     if not title or len(title) < 15:
+        logger.debug(f"⏭️ Rejeté (titre trop court): {title}")
         return False
     
     title_lower = title.lower()
     
-    # ❌ MOTIFS DE REJET IMMÉDIAT (très importants)
+    # ❌ MOTIFS DE REJET IMMÉDIAT
     rejet_patterns = [
-        # Catastrophes naturelles
         r'earthquake', r'flood', r'cyclone', r'typhoon', r'hurricane',
         r'tsunami', r'landslide', r'drought', r'famine', r'wildfire',
         r'tremor', r'volcano', r'eruption',
-        
-        # Épidémies/Santé
         r'outbreak', r'epidemic', r'pandemic',
         r'cholera', r'ebola', r'measles', r'dengue', r'diphtheria',
         r'malaria', r'tuberculosis', r'polio',
-        
-        # Actualités/Rapports
         r'world news', r'news in brief', r'press release',
         r'communiqué de presse', r'annual report', r'rapport annuel',
         r'quarterly report', r'year in review',
         r'trending data', r'feature story',
-        
-        # Pages informatives
         r'environmental & social policies',
         r'financing products & advisory',
         r'bonds & investment',
         r'about us', r'careers', r'jobs', r'vacancies',
         r'mission', r'vision', r'our work',
-        
-        # Événements
         r'conference', r'summit', r'workshop', r'seminar',
         r'webinar', r'meeting', r'forum',
-        
-        # Programmes/Projets (pas des appels d'offres)
         r'program launch', r'initiative launch',
         r'partnership announced', r'memorandum of understanding',
     ]
     
     for pattern in rejet_patterns:
         if re.search(pattern, title_lower):
+            logger.debug(f"⏭️ Rejeté (motif rejet): {title[:50]}")
             return False
     
-    # ✅ MOTS-CLÉS OBLIGATOIRES (au moins un doit être présent)
+    # ✅ MOTS-CLÉS OBLIGATOIRES (liste ÉLARGIE)
     mots_cles_obligatoires = [
         # Français
         'appel d\'offre', 'appel d\'offres', 'appels d\'offres',
@@ -419,6 +407,12 @@ def is_valid_offer_title(title: str) -> bool:
         'bureau d\'études', 'bureau d\'etudes',
         'cabinet', 'consultant', 'expertise',
         'prestation de service', 'prestation de services',
+        # ✅ NOUVEAUX MOTS-CLÉS AJOUTÉS
+        'cotation', 'cotations', 'demande de cotation',
+        'achat de', 'acquisition de', 'fourniture de',
+        'recrutement', 'embauche', 'sélection',
+        'avis de', 'annonce de',
+        'travaux de', 'étude de', 'mission de',
         
         # Anglais
         'call for tender', 'call for tenders', 'call for bids',
@@ -431,17 +425,22 @@ def is_valid_offer_title(title: str) -> bool:
         'consulting firm', 'consulting services',
         'advisory services', 'consultancy services',
         'contract award', 'contract notice',
+        # ✅ NOUVEAUX MOTS-CLÉS AJOUTÉS
+        'rfp', 'rfq', 'rfi',
+        'request for', 'invitation for',
+        'notice of', 'announcement of',
     ]
     
     # Vérifier si au moins un mot-clé obligatoire est présent
     has_valid_keyword = any(kw in title_lower for kw in mots_cles_obligatoires)
     
     if not has_valid_keyword:
+        logger.debug(f"⏭️ Rejeté (pas de mot-clé valide): {title[:50]}")
         return False
     
     # ✅ Vérifications supplémentaires
-    # Un titre valide doit avoir au moins 20 caractères
     if len(title) < 20:
+        logger.debug(f"⏭️ Rejeté (titre trop court): {title}")
         return False
     
     # Ne doit pas être trop générique
@@ -449,22 +448,22 @@ def is_valid_offer_title(title: str) -> bool:
     if all(term not in title_lower for term in generic_terms):
         return True
     
+    logger.debug(f"⏭️ Rejeté (trop générique): {title[:50]}")
     return False
 
 
 def is_rejected_content(text: str) -> bool:
     """
     Vérifie si un contenu doit être rejeté (non-offre)
-    Version RENFORCÉE
+    ✅ VERSION UNIQUE (suppression du doublon)
     """
     if not text or len(text) < 50:
         return True
     
     text_lower = text.lower()
     
-    # ❌ MOTIFS DE REJET FORTS (contenu clairement non-offre)
+    # ❌ MOTIFS DE REJET FORTS
     rejet_fort = [
-        # Catastrophes
         r'earthquake and tsunami',
         r'floods and landslides',
         r'cyclone.*\d{4}',
@@ -472,20 +471,17 @@ def is_rejected_content(text: str) -> bool:
         r'cholera outbreak',
         r'ebola outbreak',
         r'measles outbreak',
-        
-        # Actualités
         r'world news in brief',
         r'press release',
         r'news update',
         r'annual report',
-        
-        # ReliefWeb specific
         r'disaster', r'emergency', r'humanitarian',
         r'affected people', r'displaced',
     ]
     
     for pattern in rejet_fort:
         if re.search(pattern, text_lower):
+            logger.debug(f"⏭️ Contenu rejeté (motif fort): {text[:50]}")
             return True
     
     # Compter les mots-clés de rejet
@@ -506,42 +502,14 @@ def is_rejected_content(text: str) -> bool:
         'appel d\'offre', 'call for tender', 'call for proposal',
         'terms of reference', 'procurement', 'tender',
         'bidding', 'consultant', 'consulting',
+        'cotation', 'achat', 'fourniture', 'recrutement',
     ]
     
     offer_count = sum(1 for kw in mots_offre if kw in text_lower)
     
-    # Rejeter si beaucoup de rejets et peu d'offres
-    if rejection_count >= 3 and offer_count == 0:
+    # ✅ AUGMENTÉ : Rejeter seulement si BEAUCOUP de rejets (5+) et peu d'offres
+    if rejection_count >= 5 and offer_count == 0:
+        logger.debug(f"⏭️ Contenu rejeté (trop de rejets, pas d'offres): {text[:50]}")
         return True
     
     return False
-
-def is_rejected_content(text: str) -> bool:
-    """
-    Vérifie si un contenu doit être rejeté (non-offre)
-    """
-    if not text:
-        return True
-    
-    text_lower = text.lower()
-    
-    # ✅ Vérifier les motifs de rejet forts
-    rejected_patterns = [
-        r'earthquake', r'flood', r'cyclone', r'outbreak',
-        r'tsunami', r'landslide', r'drought', r'famine',
-        r'cholera', r'ebola', r'measles', r'dengue', r'diphtheria',
-        r'world news', r'news in brief',
-    ]
-    
-    for pattern in rejected_patterns:
-        if re.search(pattern, text_lower):
-            return True
-    
-    # Compter les mots-clés de rejet
-    rejection_count = sum(1 for kw in MOTS_CLES_REJET if kw in text_lower)
-    
-    # Compter les mots-clés d'offre
-    offer_count = sum(1 for kw in MOTS_CLES_FR_STRONG + MOTS_CLES_EN_STRONG if kw in text_lower)
-    
-    # Rejeter si beaucoup de mots-clés de rejet et peu d'offres
-    return rejection_count >= 3 and offer_count == 0

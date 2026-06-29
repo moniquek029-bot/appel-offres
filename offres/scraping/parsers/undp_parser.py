@@ -1,22 +1,30 @@
 # offres/scraping/parsers/undp_parser.py
 import re
-from bs4 import BeautifulSoup
-from datetime import date, timedelta
 import logging
+from datetime import date, timedelta
+from bs4 import BeautifulSoup
 
 from offres.scraping.base import BaseScraper
-from offres.scraping.utils import clean_text, normalize_url, detecter_pays
+from offres.scraping.utils import clean_text, normalize_url
+from offres.scraping.extraction_helpers import (
+    extract_all_details,
+    is_offer_expired,
+    parse_date_universelle,
+)
 
 logger = logging.getLogger(__name__)
 
+
 class UNDPParser(BaseScraper):
-    """Parser UNDP corrigé - extraction dynamique du pays"""
+    """Parser UNDP utilisant les helpers centralisés"""
     
-    def __init__(self, source_url: str, base_url: str = "https://procurement-notices.undp.org", pays_defaut: str = 'BF', **kwargs):
-        super().__init__(source_url, delay_seconds=2, base_url=base_url, pays_defaut=pays_defaut, **kwargs)
+    def __init__(self, source_url: str, base_url: str = "https://procurement-notices.undp.org", 
+                 pays_defaut: str = 'BF', **kwargs):
+        super().__init__(source_url, delay_seconds=2, base_url=base_url, 
+                        pays_defaut=pays_defaut, **kwargs)
     
     def extract_pdf_from_detail(self, detail_url: str) -> str | None:
-        """Visite la page de détail et extrait le lien PDF"""
+        """Extrait le lien PDF depuis la page de détail"""
         try:
             soup = self.fetch_page(detail_url)
             if not soup:
@@ -49,8 +57,6 @@ class UNDPParser(BaseScraper):
                 continue
             
             titre = clean_text(link.get_text(strip=True))
-            
-            # Nettoyer le titre parasite "Title" au début
             if titre.lower().startswith('title'):
                 titre = titre[5:].strip()
             
@@ -58,32 +64,35 @@ class UNDPParser(BaseScraper):
                 continue
             
             url_source = normalize_url(href, self.base_url)
-            notice_links.append({
-                'titre': titre,
-                'url_source': url_source
-            })
+            notice_links.append({'titre': titre, 'url_source': url_source})
         
-        logger.info(f"🔍 {len(notice_links)} notices trouvées, extraction des détails...")
+        logger.info(f"🔍 {len(notice_links)} notices trouvées")
         
-        # Visiter chaque page de détail pour extraire PDF et pays
+        # Visiter chaque page de détail
         for i, notice in enumerate(notice_links[:20], 1):
             logger.info(f"  [{i}/{len(notice_links)}] {notice['titre'][:50]}...")
             
-            # Extraire le PDF
-            url_tdr = self.extract_pdf_from_detail(notice['url_source'])
+            # ✅ EXTRACTION UNIFIÉE avec les helpers centralisés
+            details = self.extract_details_unified(notice['url_source'])
             
-            # 🎯 DÉTECTER LE PAYS dynamiquement depuis le titre
-            pays = detecter_pays(notice['titre'], self.pays_defaut)
+            # ✅ VÉRIFICATION OFFRE EXPIRÉE
+            if is_offer_expired(details.get('date_cloture')):
+                logger.info(f"     ⏭️ EXPIRÉE (clôture: {details.get('date_cloture')}), ignorée")
+                continue
+            
+            # Extraire le PDF
+            url_tdr = self.extract_pdf_from_detail(notice['url_source']) or details.get('url_tdr')
             
             offre = {
                 'titre': notice['titre'][:300],
                 'organisme': "UNDP",
                 'description': notice['titre'],
-                'date_publication': date.today() - timedelta(days=5),
-                'date_cloture': date.today() + timedelta(days=30),
+                'date_publication': details.get('date_publication', date.today()),
+                'date_cloture': details.get('date_cloture', date.today() + timedelta(days=30)),
                 'url_source': notice['url_source'],
                 'url_tdr': url_tdr,
-                'pays': pays,  # ← PAYS DÉTECTÉ DYNAMIQUEMENT
+                'pays': details.get('pays', self.pays_defaut),
+                'domaine': details.get('domaine', 'Autres'),  # ✅ DOMAINE DÉTECTÉ
                 'statut': 'Ouvert',
                 'mode_acquisition': 'AUTO',
             }
@@ -91,7 +100,7 @@ class UNDPParser(BaseScraper):
             if not any(o['url_source'] == offre['url_source'] for o in offres):
                 offres.append(offre)
         
-        logger.info(f"✅ UNDP: {len(offres)} offre(s) extraite(s)")
+        logger.info(f"✅ UNDP: {len(offres)} offre(s) valide(s) extraite(s)")
         return offres
     
     def run(self) -> list[dict]:
@@ -100,7 +109,10 @@ class UNDPParser(BaseScraper):
             soup = self.fetch_and_parse(use_js=False)
             if not soup:
                 return []
-            return self.parse(soup)
+            
+            offres = self.parse(soup)
+            # ✅ FILTRAGE FINAL des offres expirées
+            return self.filter_expired_offers(offres)
         except Exception as e:
             logger.error(f"❌ Erreur UNDP: {e}")
             return []

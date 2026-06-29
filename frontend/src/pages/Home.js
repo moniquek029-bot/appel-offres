@@ -1,122 +1,108 @@
 // src/pages/Home.jsx
 import React, { useState, useEffect } from 'react';
-import JobCard from '../components/JobCard';
+import { useNavigate } from 'react-router-dom';
+import SearchFilters from '../components/SearchFilters';
 import VerticalFilters from '../components/VerticalFilters';
-import SearchBar from '../components/SearchBar';
+import JobCard from '../components/JobCard';
 import { searchOffres } from '../services/api';
-import { useAuth } from '../context/AuthContext';
-import { buildMultilingualSearch } from '../utils/multilingualKeywords';
-
 
 const Home = () => {
-  const { user } = useAuth();
-  const [offres, setOffres] = useState([]);
+  const navigate = useNavigate();
+  
+  // ✅ ÉTAT DES OFFRES
+  const [offers, setOffers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   
+  // ✅ ÉTAT DES FILTRES (unifié pour les deux composants)
   const [filters, setFilters] = useState({
     keyword: '',
     pays: '',
-    max_days: '',
     domaine: '',
     structure: '',
     date_publication: '',
-    date_cloture: '',
+    max_days: ''
   });
 
-  // src/pages/Home.jsx
+  const ITEMS_PER_PAGE = 10;
 
-  // ✅ AJOUTER CET IMPORT EN HAUT DU FICHIER (avec les autres imports)
-
-  const fetchOffres = async (page = 1, newFilters = null) => {
+  // =============================================================================
+  // FONCTION 1 : Récupérer les offres avec les filtres actuels
+  // =============================================================================
+  const fetchOffers = async (page = 1, currentFilters = filters) => {
+    setLoading(true);
+    
     try {
-      setLoading(true);
-      setError(null);
-    
-      const currentFilters = newFilters || filters;
-    
-      // ✅ Utiliser la recherche multilingue
-      const searchKeyword = currentFilters.keyword || '';
-      const multilingualQuery = buildMultilingualSearch(searchKeyword);
-    
-      // ✅ Construction DIRECTE des paramètres pour l'API
-      const apiParams = {
-        keyword: multilingualQuery || searchKeyword, // ✅ Utiliser la requête multilingue
-        pays: currentFilters.pays,
-        max_days: currentFilters.max_days,
-        domaine: currentFilters.domaine,
-        structure: currentFilters.structure || '', // ✅ Structure peut être vide
-        page 
-      };
-    
-      // ✅ Envoyer date_publication DIRECTEMENT (pas de conversion)
-      if (currentFilters.date_publication) {
-        apiParams.date_publication = currentFilters.date_publication;
-        console.log(' Date publication envoyée:', currentFilters.date_publication);
-      }
-    
-      // ✅ Envoyer date_cloture DIRECTEMENT
-      if (currentFilters.date_cloture) {
-        apiParams.date_cloture = currentFilters.date_cloture;
-        console.log(' Date clôture envoyée:', currentFilters.date_cloture);
-      }
-    
-      console.log(' Paramètres envoyés à l API:', apiParams);
-    
-      const response = await searchOffres(apiParams);
-    
-      setOffres(response.results || []);
-      setTotalCount(response.count || 0);
-    
-      const itemsPerPage = 10;
-      const pages = Math.ceil((response.count || 0) / itemsPerPage);
-      setTotalPages(pages);
-      setCurrentPage(page);
-    
-      if (newFilters) {
-        setFilters(newFilters);
-      }
-    } catch (err) {
-      console.error('❌ Erreur API:', err);
-      setError('Impossible de charger les offres.');
-      setOffres([]);
+      console.log('🔍 Paramètres envoyés à l\'API:', currentFilters);
+      
+      const { results, count } = await searchOffres({
+        page: page,
+        page_size: ITEMS_PER_PAGE,
+        ...currentFilters  // ✅ Envoie tous les filtres
+      });
+      
+      console.log('✅ Réponse API:', { results: results?.length, count });
+      
+      setOffers(Array.isArray(results) ? results : []);
+      setTotalCount(count || 0);
+      setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
+      
+    } catch (error) {
+      console.error('❌ Erreur chargement offres:', error);
+      setOffers([]);
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => {
-    fetchOffres();
-  }, []);
 
-  const handleSearch = (searchKeyword) => {
-    const newFilters = { ...filters, keyword: searchKeyword };
-    setFilters(newFilters);
-    fetchOffres(1, newFilters);
-  };
+  // =============================================================================
+  // FONCTION 2 : Gérer les changements de filtres (depuis les deux composants)
+  // =============================================================================
+  // src/pages/Home.jsx
 
   const handleFilterChange = (newFilters) => {
-    const updatedFilters = { 
-      ...filters, 
-      ...newFilters
-    };
-    
-    console.log(' Nouveaux filtres reçus:', newFilters);
-    console.log(' Filtres mis à jour:', updatedFilters);
-    
+    console.log('🎯 Nouveaux filtres reçus:', newFilters);
+  
+    // ✅ CORRECTION : Si l'objet est vide (réinitialisation), on réinitialise tout
+    const updatedFilters = Object.keys(newFilters).length === 0 
+      ? {
+          keyword: '',
+          pays: '',
+          domaine: '',
+          structure: '',
+          date_publication: '',
+          max_days: ''
+        }
+      : { ...filters, ...newFilters };
+  
     setFilters(updatedFilters);
-    fetchOffres(1, updatedFilters);
+    setCurrentPage(1);
+    fetchOffers(1, updatedFilters);
   };
 
+  // =============================================================================
+  // FONCTION 3 : Changement de page
+  // =============================================================================
   const handlePageChange = (page) => {
     if (page >= 1 && page <= totalPages) {
-      fetchOffres(page);
+      setCurrentPage(page);
+      fetchOffers(page, filters);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
+  // =============================================================================
+  // EFFET INITIAL : Charger les offres au montage
+  // =============================================================================
+  useEffect(() => {
+    fetchOffers(1, filters);
+  }, []);  // ✅ Exécuter une seule fois au montage
+
+  // =============================================================================
+  // GÉNÉRATION DES NUMÉROS DE PAGE
+  // =============================================================================
   const getPageNumbers = () => {
     const pages = [];
     const maxVisible = 10;
@@ -143,87 +129,120 @@ const Home = () => {
     return pages;
   };
 
+  // =============================================================================
+  // RENDU
+  // =============================================================================
   return (
-    <div className="home-page ">
-      <SearchBar onSearch={handleSearch} />
+    <div className="min-vh-100" style={{ backgroundColor: '#f8f9fa' }}>
+      
+      {/* ✅ FILTRES HORIZONTAUX EN HAUT */}
+      <SearchFilters onSearch={handleFilterChange} />
 
-      <div className="container py-4">
-        <div className="row g-4">
-          <div className="col-lg-4 col-md-4">
-            <div className="sticky-top" style={{ top: '20px', zIndex: 1000 }}>
+      <div className="container-fluid py-4">
+        <div className="row">
+          
+          {/* ✅ FILTRES VERTICAUX À GAUCHE */}
+          <div className="col-lg-3">
+            <div className="sticky-top" style={{ top: '20px' }}>
               <VerticalFilters onFilterChange={handleFilterChange} />
             </div>
           </div>
-          
-          <div className="col-lg-8 col-md-8">
-            <div className="d-flex justify-content-between align-items-center mb-4">
+
+          {/* ✅ RÉSULTATS À DROITE */}
+          <div className="col-lg-9">
+            
+            {/* En-tête avec compteur */}
+            <div className="d-flex justify-content-between align-items-center mb-3">
               <div>
-                <h4 className="mb-0 fw-bold">Appels d'offres disponibles</h4>
-                <p className="text-muted small mb-0 mt-1">
-                  {totalCount} offre(s) trouvée(s) - Page {currentPage} / {totalPages}
+                <h4 className="mb-1">
+                  <i className="bi bi-briefcase me-2"></i>
+                  Appels d'offres
+                </h4>
+                <p className="text-muted small mb-0">
+                  {totalCount} offre(s) trouvée(s)
+                  {filters.domaine && <span className="ms-2 badge bg-primary">Domaine: {filters.domaine}</span>}
+                  {filters.pays && <span className="ms-2 badge bg-success">Pays: {filters.pays}</span>}
                 </p>
               </div>
+              
+              <button 
+                className="btn btn-outline-primary btn-sm"
+                onClick={() => fetchOffers(currentPage, filters)}
+                title="Rafraîchir"
+              >
+                <i className="bi bi-arrow-clockwise me-1"></i>
+                Actualiser
+              </button>
             </div>
 
-            {error && (
-              <div className="alert alert-danger alert-dismissible fade show">
-                {error}
-                <button type="button" className="btn-close" onClick={() => { setError(null); fetchOffres(1); }}></button>
-              </div>
-            )}
-
+            {/* Loading */}
             {loading ? (
-            <div className="text-center py-5">
-              <div className="spinner-border text-primary" role="status">
-                <span className="visually-hidden">Chargement...</span>
+              <div className="text-center py-5">
+                <div className="spinner-border text-primary" role="status">
+                  <span className="visually-hidden">Chargement...</span>
+                </div>
+                <p className="text-muted mt-3">Chargement des offres...</p>
               </div>
-            </div>
-          ) : offres.length > 0 ? (
-            <>
-              {offres.map((offre) => (
-                <JobCard key={offre.id} offre={offre} />
-              ))}
-            </>
-          ) : (
-            <div className="alert alert-info text-center py-5">
-              <i className="bi bi-inbox" style={{ fontSize: '3rem', color: '#9CA3AF' }}></i>
-              <h5 className="mt-3 mb-1">Aucune offre trouvée</h5>
-              <p className="text-muted mb-0">
-                Essayez de modifier vos critères de recherche
-              </p>
-            </div>
-          )}
+            ) : (
+              <>
+                {/* Grille des offres */}
+                <div className="row g-3">
+                  {offers.length > 0 ? (
+                    offers.map(offer => (
+                      <div className="col-12" key={offer.id}>
+                        <JobCard offre={offer} />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-12">
+                      <div className="alert alert-info text-center py-5">
+                        <i className="bi bi-inbox" style={{ fontSize: '3rem' }}></i>
+                        <p className="mt-3 mb-0">Aucune offre trouvée avec ces critères</p>
+                        {/*<button 
+                          className="btn btn-outline-primary mt-3"
+                          onClick={() => handleFilterChange({})}
+                        >
+                          Réinitialiser les filtres
+                        </button>*/}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
-            {totalPages > 1 && (
-              <nav className="mt-5" aria-label="Pagination des offres">
-                <ul className="pagination justify-content-center flex-wrap">
-                  <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
-                    <button className="page-link" onClick={() => handlePageChange(currentPage - 1)}>
-                      <i className="bi bi-arrow-left me-1"></i>
-                      Précédent
-                    </button>
-                  </li>
-                  
-                  {getPageNumbers().map((page, index) => (
-                    <li key={index} className={`page-item ${page === currentPage ? 'active' : ''} ${page === '...' ? 'disabled' : ''}`}>
-                      {page === '...' ? (
-                        <span className="page-link">...</span>
-                      ) : (
-                        <button className="page-link" onClick={() => handlePageChange(page)}>
-                          {page}
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <nav className="mt-4" aria-label="Pagination">
+                    <ul className="pagination justify-content-center flex-wrap">
+                      <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+                        <button className="page-link" onClick={() => handlePageChange(currentPage - 1)}>
+                          ← Précédent
                         </button>
-                      )}
-                    </li>
-                  ))}
-                  
-                  <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
-                    <button className="page-link" onClick={() => handlePageChange(currentPage + 1)}>
-                      <i className="bi bi-arrow-right me-1"></i>
-                      Suivant 
-                    </button>
-                  </li>
-                </ul>
-              </nav>
+                      </li>
+                      
+                      {getPageNumbers().map((page, index) => (
+                        <li 
+                          key={index} 
+                          className={`page-item ${page === currentPage ? 'active' : ''} ${page === '...' ? 'disabled' : ''}`}
+                        >
+                          {page === '...' ? (
+                            <span className="page-link">...</span>
+                          ) : (
+                            <button className="page-link" onClick={() => handlePageChange(page)}>
+                              {page}
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                      
+                      <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+                        <button className="page-link" onClick={() => handlePageChange(currentPage + 1)}>
+                          Suivant →
+                        </button>
+                      </li>
+                    </ul>
+                  </nav>
+                )}
+              </>
             )}
           </div>
         </div>
