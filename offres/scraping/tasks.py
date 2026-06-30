@@ -1,4 +1,4 @@
-# offres/scraping/tasks.py - Version CORRIGÉE (Fallback + TDR intelligent + Support JS global)
+# offres/scraping/tasks.py - Version CORRIGÉE (Fallback + TDR intelligent + Support JS global + Dates corrigées)
 
 from celery import shared_task
 from django.utils import timezone
@@ -19,6 +19,9 @@ from offres.scraping.utils import (
 )
 from offres.services.notifications import check_and_notify_matches
 from offres.scraping.site_validator import SiteValidator, is_valid_offer_title, is_rejected_content
+
+# ✅ Ajout de l'import pour l'extraction des dates
+from offres.scraping.extraction_helpers import extract_publication_date_from_text
 
 # =============================================================================
 # CONFIGURATION
@@ -285,6 +288,7 @@ def save_offre_real(data: dict, source: SourceScraping, require_pdf: bool = Fals
     - Vérifie que c'est bien un appel d'offres
     - Si url_tdr est un vrai PDF → téléchargement local
     - Si url_tdr = url_source (fallback) → pas de téléchargement
+    - ✅ Dates corrigées : extraction de la date de publication du texte
     """
     titre = clean_text(data.get('titre', '')).strip()
     organisme = clean_text(data.get('organisme', '')).strip()
@@ -347,15 +351,45 @@ def save_offre_real(data: dict, source: SourceScraping, require_pdf: bool = Fals
             return 'updated'
         return 'skipped'
     
-    # Extraction des dates
-    date_pub = parse_french_date(data.get('date_publication')) or timezone.now().date()
-    date_clot = parse_french_date(data.get('date_cloture'))
+    # =========================================================================
+    # ✅ EXTRACTION DES DATES AMÉLIORÉE
+    # =========================================================================
     
+    # 1. Essayer la date extraite par le parser
+    date_pub = parse_french_date(data.get('date_publication'))
+    
+    # 2. Si pas de date ou date = aujourd'hui (scraping), essayer d'extraire du texte
+    if not date_pub or date_pub == timezone.now().date():
+        texte_complet = titre + ' ' + description
+        extracted_pub = extract_publication_date_from_text(texte_complet)
+        if extracted_pub and extracted_pub <= timezone.now().date():
+            date_pub = extracted_pub
+            logger.info(f"📅 Date de publication extraite du texte: {date_pub}")
+    
+    # 3. Fallback: aujourd'hui
+    if not date_pub:
+        date_pub = timezone.now().date()
+        logger.info(f"📅 Date de publication par défaut: {date_pub}")
+    
+    # 4. S'assurer que date_pub n'est pas dans le futur
+    if date_pub > timezone.now().date():
+        date_pub = timezone.now().date()
+        logger.warning(f"⚠️ Date de publication corrigée (était dans le futur): {date_pub}")
+    
+    # 5. Date de clôture
+    date_clot = parse_french_date(data.get('date_cloture'))
     if not date_clot:
         date_clot = date_pub + timezone.timedelta(days=30)
-        logger.warning(f"⚠️ Date clôture manquante pour '{titre[:30]}'. Fixée à J+30.")
+        logger.warning(f"⚠️ Date clôture manquante, fixée à J+30: {date_clot}")
     
+    # 6. S'assurer que date_cloture > date_publication
+    if date_clot < date_pub:
+        date_clot = date_pub + timezone.timedelta(days=30)
+        logger.warning(f"⚠️ Date clôture corrigée (était avant publication): {date_clot}")
+    
+    # =========================================================================
     # Téléchargement du PDF à la création
+    # =========================================================================
     fichier_pdf = None
     if is_real_pdf:
         pdf_content = fetch_and_validate_pdf(url_tdr, titre)

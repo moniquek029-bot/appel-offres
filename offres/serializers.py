@@ -184,6 +184,7 @@ class AppelOffreSerializer(serializers.ModelSerializer):
             'url_tdr', 'fichier_pdf', 'fichier_pdf_url',
             'statut', 'mode_acquisition', 'source_origine',
             'date_scraping', 'est_expire',
+            'domaine', 'type_offre',
         ]
         read_only_fields = ['date_scraping', 'est_expire']
     

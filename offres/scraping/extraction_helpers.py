@@ -306,6 +306,7 @@ def is_offer_valid(offre: dict) -> tuple[bool, str]:
 # offres/scraping/extraction_helpers.py - Remplacer extract_pdf_url
 
 # À la fin de offres/scraping/extraction_helpers.py
+# À la fin de offres/scraping/extraction_helpers.py, remplacer extract_pdf_url
 
 def extract_pdf_url(soup: BeautifulSoup, base_url: str) -> str | None:
     """
@@ -349,7 +350,6 @@ def extract_pdf_url(soup: BeautifulSoup, base_url: str) -> str | None:
         onclick = button.get('onclick', '').lower()
         
         if any(kw in text or kw in onclick for kw in ['download', 'pdf', 'tdr']):
-            # Chercher le lien associé
             parent = button.find_parent('a')
             if parent and parent.get('href'):
                 full_url = urljoin(base_url, parent['href'])
@@ -366,8 +366,59 @@ def extract_pdf_url(soup: BeautifulSoup, base_url: str) -> str | None:
     if candidats:
         candidats.sort(key=lambda x: x[0], reverse=True)
         best = candidats[0]
-        logger.info(f"   📄 PDF trouvé: {best[1][:80]} (score: {best[0]}, type: {best[2]})")
+        logger.info(f"   📄 PDF trouvé: {best[1][:80]} (score: {best[0]})")
         return best[1]
     
-    logger.debug("   ⚠️ Aucun PDF trouvé sur la page")
+    return None
+
+# =============================================================================
+# EXTRACTION DE DATE DE PUBLICATION
+# =============================================================================
+
+def extract_publication_date_from_text(texte: str) -> date | None:
+    """Extrait la date de publication depuis un texte"""
+    if not texte:
+        return None
+    
+    patterns = [
+        r'posted\s*[:;]\s*(\d{2})-([A-Za-z]{3})-(\d{2,4})',
+        r'published\s*[:;]\s*(\d{2})-([A-Za-z]{3})-(\d{2,4})',
+        r'publication\s*[:;]\s*(\d{2})-([A-Za-z]{3})-(\d{2,4})',
+        r'publié le\s*[:;]\s*(\d{2})-([A-Za-z]{3})-(\d{2,4})',
+        r'publié\s*[:;]\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})',
+        r'date\s*[:;]\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})',
+    ]
+    
+    months_en = {
+        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+        'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+    }
+    
+    for pattern in patterns:
+        match = re.search(pattern, texte, re.IGNORECASE)
+        if match:
+            groups = match.groups()
+            if len(groups) >= 3:
+                try:
+                    day = int(groups[0])
+                    month_str = groups[1].lower()
+                    year_str = groups[2]
+                    
+                    if month_str.isdigit():
+                        month = int(month_str)
+                    else:
+                        month = months_en.get(month_str[:3], 1)
+                    
+                    year = int(year_str)
+                    if year < 50:
+                        year += 2000
+                    elif year < 100:
+                        year += 1900
+                    
+                    parsed = date(year, month, day)
+                    if parsed <= date.today():
+                        return parsed
+                except (ValueError, TypeError):
+                    continue
+    
     return None

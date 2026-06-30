@@ -408,6 +408,8 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
             'offre': AppelOffreSerializer(offre, context={'request': request}).data
         }, status=status.HTTP_201_CREATED)
     
+
+    
     @action(detail=True, methods=['get'], url_path='download-pdf')
     def download_pdf(self, request, pk=None):
         """

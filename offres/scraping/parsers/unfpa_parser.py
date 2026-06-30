@@ -32,6 +32,9 @@ class UNFPAParser(BaseScraper):
         self.offers = []
         self.base_url = "https://burkinafaso.unfpa.org"
     
+    def detecter_domaine(self, titre, description=""):
+        return detecter_domaine(titre, description)
+    
     def extraire_pdf_unfpa(self, soup, base_url="", url_source=""):
         """
         Extraction de PDF spécifique pour UNFPA
@@ -44,11 +47,8 @@ class UNFPAParser(BaseScraper):
             href = link.get('href', '')
             texte = link.get_text(strip=True).lower()
             
-            # Vérifier les mots-clés de téléchargement
             if any(kw in href.lower() or kw in texte for kw in ['download', 'telecharger', 'télécharger']):
                 return normalize_url(href, base_url)
-            
-            # Vérifier les extensions PDF
             if href.lower().endswith('.pdf'):
                 return normalize_url(href, base_url)
         
@@ -58,7 +58,7 @@ class UNFPAParser(BaseScraper):
             if '/sites/default/files/' in href:
                 return normalize_url(href, base_url)
         
-        # 3. Chercher les fichiers avec extensions de documents
+        # 3. Chercher les extensions de documents
         extensions_doc = ['.doc', '.docx', '.xls', '.xlsx', '.pdf']
         for link in soup.find_all('a', href=True):
             href = link.get('href', '')
@@ -71,7 +71,6 @@ class UNFPAParser(BaseScraper):
             href = btn.get('href', '')
             texte = btn.get_text(strip=True).lower()
             classe = ' '.join(btn.get('class', []))
-            
             if 'download' in classe.lower() or 'telecharger' in classe.lower() or 'download' in texte:
                 if href:
                     return normalize_url(href, base_url)
@@ -83,14 +82,9 @@ class UNFPAParser(BaseScraper):
                 if href:
                     return normalize_url(href, base_url)
         
-        # 6. Chercher les méta-données
-        meta_download = soup.find('meta', {'name': 'download'})
-        if meta_download and meta_download.get('content'):
-            return normalize_url(meta_download.get('content'), base_url)
-        
-        # 7. Fallback : URL source si disponible
+        # 6. Fallback : URL source
         if url_source:
-            logger.info(f"  📄 Aucun PDF trouvé, utilisation de l'URL source: {url_source[:60]}...")
+            logger.info(f"  📄 Aucun PDF trouvé, utilisation de l'URL source")
             return url_source
         
         return None
@@ -104,7 +98,6 @@ class UNFPAParser(BaseScraper):
                 logger.error("❌ Page non récupérée")
                 return []
             
-            # Récupérer le titre de la page pour debug
             title = soup.title.string if soup.title else 'Sans titre'
             logger.info(f"📄 Page: {title}")
             
@@ -126,7 +119,6 @@ class UNFPAParser(BaseScraper):
                     continue
                 processed_urls.add(offre_url)
                 
-                # Exclure les liens de navigation
                 if any(x in offre_url.lower() for x in [
                     '/fr/node/add/', '/login', '/logout', '/user/',
                     '#', 'javascript:', '/fr/about', '/fr/contact'
@@ -139,16 +131,14 @@ class UNFPAParser(BaseScraper):
                 
                 logger.info(f"📄 Récupération des détails: {titre[:50]}...")
                 
-                # Visiter la page de détail
                 detail_soup = self.fetch_page(offre_url)
                 if not detail_soup:
                     logger.warning(f"⚠️ Impossible de récupérer la page: {offre_url}")
                     continue
                 
-                # ✅ Extraire le PDF/TDR avec la méthode spécifique UNFPA
+                # ✅ Extraire le PDF
                 pdf_url = self.extraire_pdf_unfpa(detail_soup, self.base_url, offre_url)
                 
-                # Extraire les autres détails
                 details = extract_all_details(
                     detail_soup,
                     url=offre_url,
@@ -157,17 +147,16 @@ class UNFPAParser(BaseScraper):
                     description=titre
                 )
                 
-                # ✅ REJET STRICT : UNIQUEMENT les appels d'offres
+                # ✅ REJET STRICT
                 if not est_appel_offres(titre, titre):
                     logger.info(f"   ⏭️ REJETÉ (pas un appel d'offres): {titre[:50]}...")
                     continue
                 
-                # Détection du domaine
-                domaine = detecter_domaine(titre)
+                domaine = self.detecter_domaine(titre)
                 if details.get('domaine') and details.get('domaine') != 'Autres':
                     domaine = details.get('domaine')
                 
-                # ✅ Utiliser le PDF trouvé ou fallback
+                # ✅ Fallback URL source
                 url_tdr = pdf_url or details.get('url_tdr') or offre_url
                 
                 offer = {
@@ -185,7 +174,6 @@ class UNFPAParser(BaseScraper):
                     'mode_acquisition': 'AUTO',
                 }
                 
-                # Validation finale
                 is_valid, reason = is_offer_valid(offer)
                 if not is_valid:
                     logger.info(f"   ⏭️ REJETÉ: {reason}")

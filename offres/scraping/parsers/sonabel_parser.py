@@ -2,7 +2,6 @@
 from bs4 import BeautifulSoup
 from datetime import date, timedelta
 import logging
-import re
 
 from offres.scraping.base import BaseScraper
 from offres.scraping.utils import clean_text, normalize_url
@@ -23,7 +22,6 @@ class SONABELParser(BaseScraper):
     
     def parse(self, soup: BeautifulSoup) -> list[dict]:
         offres = []
-        
         keywords = ['appel', 'offre', 'marché', 'avis', 'tender']
         
         for link in soup.find_all('a', href=True):
@@ -39,18 +37,19 @@ class SONABELParser(BaseScraper):
             
             url_source = normalize_url(href, self.base_url)
             
-            # ✅ REJET STRICT : UNIQUEMENT les appels d'offres
+            # ✅ REJET STRICT
             if not est_appel_offres(titre):
                 logger.info(f"   ⏭️ REJETÉ (pas un appel d'offres): {titre[:50]}...")
                 continue
             
-            # ✅ Extraire le PDF si disponible
+            # ✅ Extraire le PDF
             pdf_url = None
             if url_source:
                 detail_soup = self.fetch_page(url_source)
                 if detail_soup:
                     pdf_url = extract_pdf_url(detail_soup, self.base_url)
             
+            # ✅ Fallback URL source
             url_tdr = pdf_url or url_source
             
             domaine = self.detecter_domaine(titre)
@@ -62,7 +61,7 @@ class SONABELParser(BaseScraper):
                 'date_publication': date.today(),
                 'date_cloture': date.today() + timedelta(days=30),
                 'url_source': url_source,
-                'url_tdr': url_tdr,  # ✅ PDF/TDR trouvé
+                'url_tdr': url_tdr,
                 'pays': self.pays_defaut,
                 'domaine': domaine,
                 'statut': 'Ouvert',

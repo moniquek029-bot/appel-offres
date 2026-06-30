@@ -45,7 +45,6 @@ class AfDBParser(BaseScraper):
                     if offre['date_cloture'] and offre['date_cloture'] < date.today():
                         continue
                     
-                    # ✅ REJET STRICT : UNIQUEMENT les appels d'offres
                     if not est_appel_offres(offre.get('titre', ''), offre.get('description', '')):
                         logger.info(f"   ⏭️ REJETÉ (pas un appel d'offres): {offre.get('titre', '')[:50]}...")
                         continue
@@ -82,8 +81,6 @@ class AfDBParser(BaseScraper):
         domaine = self.detecter_domaine(titre)
         description = f"Banque Africaine de Développement (AfDB) - {titre}"
         
-        # ✅ On récupérera le PDF dans la méthode run() car il faut une requête séparée
-        
         return {
             'titre': titre[:300],
             'organisme': 'African Development Bank',
@@ -91,7 +88,7 @@ class AfDBParser(BaseScraper):
             'date_publication': date_pub,
             'date_cloture': date_cloture,
             'url_source': url_source,
-            'url_tdr': url_source,  # ✅ Par défaut, mis à jour dans run()
+            'url_tdr': url_source,  # ✅ Sera mis à jour dans run()
             'pays': pays,
             'domaine': domaine,
             'statut': 'Ouvert',
@@ -110,7 +107,6 @@ class AfDBParser(BaseScraper):
             for offre in offres:
                 if offre.get('url_source'):
                     time.sleep(1)
-                    # ✅ Extraire le PDF depuis la page de détail
                     detail_soup = self.fetch_page(offre['url_source'])
                     if detail_soup:
                         pdf_url = extract_pdf_url(detail_soup, self.base_url)

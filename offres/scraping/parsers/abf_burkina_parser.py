@@ -54,7 +54,6 @@ class ABFBurkinaScraper(BaseScraper):
                 if not offre_base:
                     continue
                 
-                # ✅ REJET STRICT : UNIQUEMENT les appels d'offres
                 if not est_appel_offres(offre_base.get('titre', ''), offre_base.get('description', '')):
                     logger.info(f"   ⏭️ REJETÉ (pas un appel d'offres): {offre_base.get('titre', '')[:50]}...")
                     continue
@@ -65,7 +64,7 @@ class ABFBurkinaScraper(BaseScraper):
                 
                 logger.info(f"  [{i}/{len(articles)}] Extraction détails: {offre_base['titre'][:50]}...")
                 
-                # ✅ Extraire le PDF depuis la page de détail
+                # ✅ Extraire le PDF
                 url_tdr = offre_base.get('url_source')
                 if url_tdr:
                     detail_soup = self.fetch_page(url_tdr)
@@ -79,7 +78,7 @@ class ABFBurkinaScraper(BaseScraper):
                 
                 if not any(o['url_source'] == offre_base['url_source'] for o in offres):
                     offres.append(offre_base)
-                    logger.info(f"  ✅ Appel d'offres extrait (domaine: {offre_base.get('domaine', 'Autres')}, PDF: {bool(pdf_url if 'pdf_url' in locals() else False)})")
+                    logger.info(f"  ✅ Appel d'offres extrait (domaine: {offre_base.get('domaine', 'Autres')})")
                     
             except Exception as e:
                 logger.debug(f"⚠️ Erreur parsing bloc ABF: {e}")
@@ -89,7 +88,6 @@ class ABFBurkinaScraper(BaseScraper):
         return offres
     
     def _parser_article_base(self, article) -> dict | None:
-        # ... (code existant, inchangé)
         titre_elem = article.find(['h2', 'h3', 'h4', 'a'], class_=re.compile(r'title|entry', re.I)) or article.find(['h2', 'h3', 'h4'])
         if not titre_elem:
             return None
@@ -143,7 +141,7 @@ class ABFBurkinaScraper(BaseScraper):
             'date_publication': date_pub,
             'date_cloture': date_cloture,
             'url_source': url_source,
-            'url_tdr': url_source,  # ✅ Sera mis à jour dans parse()
+            'url_tdr': url_source,
             'pays': self.pays_defaut,
             'domaine': domaine,
             'statut': 'Ouvert',

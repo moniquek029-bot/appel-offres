@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 
 from offres.scraping.base import BaseScraper
-from offres.scraping.utils import clean_text, normalize_url  # ✅ AJOUT DE normalize_url
+from offres.scraping.utils import clean_text, normalize_url
 from offres.scraping.extraction_helpers import extract_all_details, extract_pdf_url
 from offres.scraping.constantes import detecter_domaine
 from offres.scraping.country_detector import detecter_pays_smart
@@ -30,33 +30,25 @@ class SmartParser(BaseScraper):
         return detecter_domaine(titre, description)
     
     def extraire_pdf_generique(self, soup, base_url="", url_source=""):
-        """
-        Extraction de PDF générique pour SmartParser
-        """
         if not soup:
             return None
         
-        # 1. Chercher les liens .pdf directs
         for link in soup.find_all('a', href=True):
             href = link.get('href', '')
             if href.lower().endswith('.pdf'):
                 return normalize_url(href, base_url)
         
-        # 2. Chercher les liens de téléchargement
         for link in soup.find_all('a', href=True):
             href = link.get('href', '')
             texte = link.get_text(strip=True).lower()
-            
             if any(kw in href.lower() or kw in texte for kw in ['download', 'telecharger', 'télécharger', 'tdr', 'document']):
                 return normalize_url(href, base_url)
         
-        # 3. Chercher les fichiers dans /sites/default/files/ ou /files/
         for link in soup.find_all('a', href=True):
             href = link.get('href', '')
             if '/sites/default/files/' in href or '/files/' in href or '/documents/' in href:
                 return normalize_url(href, base_url)
         
-        # 4. Chercher les extensions de documents
         extensions_doc = ['.doc', '.docx', '.xls', '.xlsx', '.pdf']
         for link in soup.find_all('a', href=True):
             href = link.get('href', '')
@@ -64,19 +56,16 @@ class SmartParser(BaseScraper):
                 if href.lower().endswith(ext):
                     return normalize_url(href, base_url)
         
-        # 5. Chercher les boutons de téléchargement
         for btn in soup.find_all(['button', 'a']):
             href = btn.get('href', '')
             texte = btn.get_text(strip=True).lower()
             classe = ' '.join(btn.get('class', []))
-            
             if 'download' in classe.lower() or 'telecharger' in classe.lower() or 'download' in texte:
                 if href:
                     return normalize_url(href, base_url)
         
-        # 6. Fallback : URL source si disponible
         if url_source:
-            logger.info(f"  📄 Aucun PDF trouvé, utilisation de l'URL source: {url_source[:60]}...")
+            logger.info(f"  📄 Aucun PDF trouvé, utilisation de l'URL source")
             return url_source
         
         return None
@@ -110,7 +99,6 @@ class SmartParser(BaseScraper):
                 if not titre or len(titre) < 15:
                     continue
                 
-                # ✅ REJET STRICT : UNIQUEMENT les appels d'offres
                 if not est_appel_offres(titre):
                     logger.info(f"   ⏭️ REJETÉ (pas un appel d'offres): {titre[:50]}...")
                     continue
@@ -137,7 +125,7 @@ class SmartParser(BaseScraper):
                 domaine = self.detecter_domaine(texte_complet)
                 description = f"Domaine : {domaine}. {description}"
                 
-                # ✅ Extraire le PDF si disponible
+                # ✅ Extraire le PDF
                 pdf_url = None
                 if url_source:
                     try:
@@ -147,7 +135,7 @@ class SmartParser(BaseScraper):
                     except Exception as e:
                         logger.debug(f"⚠️ Erreur extraction PDF: {e}")
                 
-                # ✅ Si aucun PDF trouvé, utiliser l'URL source
+                # ✅ Fallback URL source
                 url_tdr = pdf_url or url_source
 
                 offre = {
@@ -192,7 +180,6 @@ class SmartParser(BaseScraper):
                                 offre['date_cloture'] = details['date_cloture']
                             if details.get('domaine') and details.get('domaine') != 'Autres':
                                 offre['domaine'] = details.get('domaine')
-                            # ✅ Mettre à jour le PDF si trouvé
                             pdf_url = self.extraire_pdf_generique(detail_soup, self.base_url, offre['url_source'])
                             if pdf_url:
                                 offre['url_tdr'] = pdf_url

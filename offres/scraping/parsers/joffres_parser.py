@@ -61,22 +61,23 @@ class JoffresParser(BaseScraper):
                 
                 if date_clot and date_clot < date.today():
                     continue
-
+                
                 if any(o['url_source'] == url_source for o in offres):
                     continue
                 
-                # ✅ REJET STRICT : UNIQUEMENT les appels d'offres
+                # ✅ REJET STRICT
                 if not est_appel_offres(titre):
                     logger.info(f"   ⏭️ REJETÉ (pas un appel d'offres): {titre[:50]}...")
                     continue
                 
-                # ✅ Extraire le PDF si disponible
+                # ✅ Extraire le PDF
                 pdf_url = None
                 if url_source:
                     detail_soup = self.fetch_page(url_source)
                     if detail_soup:
                         pdf_url = extract_pdf_url(detail_soup, self.base_url)
                 
+                # ✅ Fallback URL source
                 url_tdr = pdf_url or url_source
                 
                 domaine = self.detecter_domaine(titre)
@@ -88,7 +89,7 @@ class JoffresParser(BaseScraper):
                     'date_publication': date_pub,
                     'date_cloture': date_clot,
                     'url_source': url_source,
-                    'url_tdr': url_tdr,  # ✅ PDF/TDR trouvé
+                    'url_tdr': url_tdr,
                     'pays': pays,
                     'domaine': domaine,
                     'statut': 'Ouvert',

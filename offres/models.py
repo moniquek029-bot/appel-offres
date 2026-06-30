@@ -249,18 +249,44 @@ class AppelOffre(models.Model):
             models.Index(fields=['type_offre']),
         ]
 
-    def __str__(self):
-        return f"[{self.mode_acquisition}] {self.titre[:50]}..."
+
+        # offres/models.py - AppelOffre
+
+    # ... champs existants ...
     
-    # ✅ Méthode utilitaire pour vérifier si un PDF est disponible
+    def get_pdf_download_url(self, request=None):
+        """
+        Retourne l'URL de téléchargement du PDF
+        Priorité: fichier local > URL TDR > URL source
+        """
+        if self.fichier_pdf and self.fichier_pdf.name:
+            if request:
+                return request.build_absolute_uri(self.fichier_pdf.url)
+            return self.fichier_pdf.url
+        
+        if self.url_tdr:
+            return self.url_tdr
+        
+        if self.url_source:
+            return self.url_source
+        
+        return None
+    
     def has_pdf(self):
-        """Vérifie si un PDF est disponible (fichier uploadé ou URL)"""
+        """Vérifie si un PDF est disponible"""
         return bool(self.fichier_pdf) or bool(self.url_tdr)
     
     # ✅ Méthode utilitaire pour vérifier si c'est un vrai appel d'offres
     def is_real_tender(self):
         """Vérifie si l'offre est un vrai appel d'offres"""
         return self.type_offre == 'APPEL_D_OFFRES'
+
+    def __str__(self):
+        return f"[{self.mode_acquisition}] {self.titre[:50]}..."
+    
+   
+    
+    
 
 # =============================================================================
 # MODULE 4 : PROFILS - EXPERT (avec CV, compétences, etc.)
