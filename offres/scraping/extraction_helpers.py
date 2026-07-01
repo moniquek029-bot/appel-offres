@@ -96,11 +96,13 @@ def parse_date_universelle(date_str: str) -> date | None:
 # =============================================================================
 # 2. EXTRACTION UNIFIÉE DE TOUS LES CHAMPS
 # =============================================================================
+# offres/scraping/extraction_helpers.py - Modifier extract_all_details
 
 def extract_all_details(soup: BeautifulSoup, url: str = "", pays_defaut: str = 'BF', 
                        titre: str = "", description: str = "") -> dict:
     """
     Extrait tous les champs d'une page de détail
+    Version améliorée avec extraction des dates
     """
     result = {
         'pays': pays_defaut,
@@ -117,80 +119,34 @@ def extract_all_details(soup: BeautifulSoup, url: str = "", pays_defaut: str = '
     result['texte_complet'] = soup.get_text()[:5000]
     texte_pour_domaine = f"{titre} {description} {result['texte_complet']}"
     
-    # Patterns spécifiques pour les dates
-    date_patterns = [
-        r'deadline[:\s]+(\d{1,2}[-\s]+[A-Za-z]{3,9}[-\s]+\d{2,4})',
-        r'deadline[:\s]+(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4})',
-        r'posted[:\s]+(\d{1,2}[-\s]+[A-Za-z]{3,9}[-\s]+\d{2,4})',
-        r'posted[:\s]+(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4})',
-        r'published\s+on[:\s]+(\d{1,2}[-\s]+[A-Za-z]{3,9}[-\s]+\d{2,4})',
-        r'date\s+limite[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
-        r'date\s+de\s+cl[oô]ture[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
-    ]
-    
+    # ✅ NOUVEAU: Extraire les dates depuis le texte complet
     texte_complet = result['texte_complet']
     
-    # Extraire les dates avec des patterns spécifiques
-    for pattern in date_patterns:
-        match = re.search(pattern, texte_complet, re.IGNORECASE)
-        if match:
-            date_str = match.group(1).strip()
-            parsed_date = parse_date_universelle(date_str)
-            if parsed_date:
-                if 'deadline' in pattern.lower() or 'clôture' in pattern.lower() or 'limite' in pattern.lower():
-                    if not result['date_cloture']:
-                        result['date_cloture'] = parsed_date
-                else:
-                    if not result['date_publication']:
-                        result['date_publication'] = parsed_date
+    # 1. Essayer d'extraire la date de publication
+    pub_date = extract_publication_date_from_text(texte_complet)
+    if pub_date:
+        result['date_publication'] = pub_date
+        logger.info(f"📅 Date de publication extraite: {pub_date}")
     
-    # Parcourir les éléments
-    for elem in soup.find_all(['td', 'th', 'dt', 'dd', 'div', 'span', 'strong', 'b', 'p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
-        text = elem.get_text(strip=True)
-        text_lower = text.lower()
-        
-        # PAYS
-        if re.search(r'\b(office|country|pays)\b', text_lower):
-            next_elem = elem.find_next_sibling()
-            if next_elem:
-                next_text = next_elem.get_text(strip=True)
-                if next_text and len(next_text) > 2:
-                    detected = detecter_pays_smart(next_text, url=url, pays_defaut=pays_defaut)
-                    if detected != pays_defaut:
-                        result['pays'] = detected
-        
-        # DOMAINE
-        elif re.search(r'\b(category|type|sector|domaine)\b', text_lower):
-            next_elem = elem.find_next_sibling()
-            if next_elem:
-                next_text = next_elem.get_text(strip=True)
-                if next_text:
-                    detected = detecter_domaine(next_text)
-                    if detected != 'Autres':
-                        result['domaine'] = detected
-        
-        # PDF
-        elif elem.name == 'a' and elem.get('href'):
-            href = elem.get('href', '').lower()
-            link_text = text.lower()
-            if '.pdf' in href or any(kw in link_text for kw in ['download', 'télécharger', 'tdr']):
-                result['url_tdr'] = urljoin(url, elem.get('href'))
+    # 2. Essayer d'extraire la date de clôture
+    deadline = extract_deadline_from_text(texte_complet)
+    if deadline:
+        result['date_cloture'] = deadline
+        logger.info(f"📅 Date de clôture extraite: {deadline}")
     
-    # Fallbacks
+    # 3. Si pas de date de publication, utiliser la date du jour
     if not result['date_publication']:
         result['date_publication'] = date.today()
+        logger.info(f"📅 Date de publication par défaut: {date.today()}")
     
-    if not result['date_cloture']:
-        result['date_cloture'] = _extract_deadline_from_text(texte_complet)
-    
+    # 4. Si pas de date de clôture, fixer à J+30
     if not result['date_cloture']:
         result['date_cloture'] = date.today() + timedelta(days=30)
+        logger.info(f"📅 Date de clôture par défaut: J+30")
     
-    if result['domaine'] == 'Autres':
-        result['domaine'] = detecter_domaine(texte_pour_domaine)
+    # ... reste du code (pays, domaine, PDF)
     
     return result
-
 
 def _extract_deadline_from_text(texte: str):
     """Extrait la date limite depuis un texte complet"""
@@ -418,6 +374,129 @@ def extract_publication_date_from_text(texte: str) -> date | None:
                     parsed = date(year, month, day)
                     if parsed <= date.today():
                         return parsed
+                except (ValueError, TypeError):
+                    continue
+    
+    return None
+
+
+# offres/scraping/extraction_helpers.py - Ajouter à la fin
+
+def extract_publication_date_from_text(texte: str) -> date | None:
+    """
+    Extrait la date de publication depuis un texte
+    Supporte plusieurs formats: 
+    - Posted: 16-Jun-26
+    - Published on: 16-Jun-26
+    - Date limite: 26/12/2025
+    - Publié le: 26/12/2025
+    """
+    if not texte:
+        return None
+    
+    # Patterns pour la date de publication
+    patterns = [
+        # Format: Posted: 16-Jun-26, Posted: 16 June 2026
+        r'(?:posted|published|publié|publication)\s*[:;]\s*(\d{1,2})\s*[-/]\s*([A-Za-z]{3,9})\s*[-/]\s*(\d{2,4})',
+        r'(?:posted|published|publié|publication)\s*[:;]\s*(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{2,4})',
+        # Format: 16-Jun-26, 16/06/2026
+        r'(\d{1,2})\s*[-/]\s*([A-Za-z]{3,9})\s*[-/]\s*(\d{2,4})',
+        r'(\d{1,2})\s*[/-]\s*(\d{1,2})\s*[/-]\s*(\d{2,4})',
+        # Format: 16 June 2026
+        r'(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{2,4})',
+    ]
+    
+    months_en = {
+        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+        'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+        'january': 1, 'february': 2, 'march': 3, 'april': 4, 'june': 6,
+        'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12
+    }
+    
+    for pattern in patterns:
+        match = re.search(pattern, texte, re.IGNORECASE)
+        if match:
+            groups = match.groups()
+            if len(groups) >= 3:
+                try:
+                    day = int(groups[0])
+                    month_str = groups[1].lower().strip()
+                    year_str = groups[2].strip()
+                    
+                    # Déterminer le mois
+                    if month_str.isdigit():
+                        month = int(month_str)
+                    else:
+                        # Prendre les 3 premières lettres
+                        month_key = month_str[:3]
+                        month = months_en.get(month_key, 1)
+                    
+                    # Déterminer l'année
+                    year = int(year_str)
+                    if year < 50:
+                        year += 2000
+                    elif year < 100:
+                        year += 1900
+                    
+                    # Vérifier que la date est valide
+                    parsed = date(year, month, day)
+                    if parsed <= date.today():
+                        return parsed
+                except (ValueError, TypeError):
+                    continue
+    
+    return None
+
+
+def extract_deadline_from_text(texte: str) -> date | None:
+    """
+    Extrait la date de clôture depuis un texte
+    Supporte: Deadline: 08-Jul-26, Date limite: 26/12/2025
+    """
+    if not texte:
+        return None
+    
+    patterns = [
+        # Format avec mots-clés
+        r'(?:deadline|date\s*limite|clôture|cloture|expire)\s*[:;]\s*(\d{1,2})\s*[-/]\s*([A-Za-z]{3,9})\s*[-/]\s*(\d{2,4})',
+        r'(?:deadline|date\s*limite|clôture|cloture|expire)\s*[:;]\s*(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{2,4})',
+        # Format sans mots-clés
+        r'(\d{1,2})\s*[-/]\s*([A-Za-z]{3,9})\s*[-/]\s*(\d{2,4})',
+        r'(\d{1,2})\s*[/-]\s*(\d{1,2})\s*[/-]\s*(\d{2,4})',
+        r'(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{2,4})',
+    ]
+    
+    months_en = {
+        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+        'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+        'january': 1, 'february': 2, 'march': 3, 'april': 4, 'june': 6,
+        'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12
+    }
+    
+    for pattern in patterns:
+        match = re.search(pattern, texte, re.IGNORECASE)
+        if match:
+            groups = match.groups()
+            if len(groups) >= 3:
+                try:
+                    day = int(groups[0])
+                    month_str = groups[1].lower().strip()
+                    year_str = groups[2].strip()
+                    
+                    if month_str.isdigit():
+                        month = int(month_str)
+                    else:
+                        month_key = month_str[:3]
+                        month = months_en.get(month_key, 1)
+                    
+                    year = int(year_str)
+                    if year < 50:
+                        year += 2000
+                    elif year < 100:
+                        year += 1900
+                    
+                    parsed = date(year, month, day)
+                    return parsed
                 except (ValueError, TypeError):
                     continue
     

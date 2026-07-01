@@ -1,4 +1,4 @@
-# offres/scraping/tasks.py - Version CORRIGÉE (Fallback + TDR intelligent + Support JS global + Dates corrigées)
+# offres/scraping/tasks.py - Version COMPLÈTE avec gestion automatique des offres expirées
 
 from celery import shared_task
 from django.utils import timezone
@@ -21,7 +21,7 @@ from offres.services.notifications import check_and_notify_matches
 from offres.scraping.site_validator import SiteValidator, is_valid_offer_title, is_rejected_content
 
 # ✅ Ajout de l'import pour l'extraction des dates
-from offres.scraping.extraction_helpers import extract_publication_date_from_text
+from offres.scraping.extraction_helpers import extract_publication_date_from_text, extract_deadline_from_text
 
 # =============================================================================
 # CONFIGURATION
@@ -119,6 +119,69 @@ def is_trusted_source(url_racine: str) -> bool:
     """Vérifie si une source est dans la liste blanche"""
     parsed_domain = urlparse(url_racine).netloc.lower()
     return any(trusted in parsed_domain for trusted in TRUSTED_SOURCES)
+
+
+# =============================================================================
+# ✅ FONCTION POUR MARQUER LES OFFRES EXPIRÉES
+# =============================================================================
+
+def mark_expired_offres():
+    """
+    Marque les offres comme expirées lorsque la date de clôture est passée
+    """
+    today = timezone.now().date()
+    
+    expired = AppelOffre.objects.filter(
+        date_cloture__lt=today,
+        statut='Ouvert'
+    )
+    
+    count = expired.count()
+    
+    if count > 0:
+        expired.update(statut='Expiré')
+        logger.info(f"📅 {count} offres marquées comme expirées")
+    
+    return count
+
+
+# =============================================================================
+# ✅ FONCTION POUR SUPPRIMER LES OFFRES EXPIRÉES DÉFINITIVEMENT
+# =============================================================================
+
+@shared_task
+def delete_expired_offres():
+    """
+    Supprime définitivement les offres expirées après 7 jours
+    """
+    logger.info("🗑️ Suppression des offres expirées...")
+    
+    from datetime import timedelta
+    cutoff_date = timezone.now().date() - timedelta(days=7)
+    
+    # Offres expirées depuis plus de 7 jours
+    expired_offres = AppelOffre.objects.filter(
+        statut='Expiré',
+        date_cloture__lt=cutoff_date
+    )
+    
+    count = expired_offres.count()
+    
+    if count > 0:
+        for offre in expired_offres:
+            # Supprimer le PDF physique
+            if offre.fichier_pdf:
+                try:
+                    offre.fichier_pdf.delete(save=False)
+                except:
+                    pass
+            offre.delete()
+        
+        logger.info(f"✅ {count} offres expirées supprimées définitivement")
+        return {"deleted": count}
+    
+    logger.info("✅ Aucune offre à supprimer")
+    return {"deleted": 0}
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
@@ -288,7 +351,8 @@ def save_offre_real(data: dict, source: SourceScraping, require_pdf: bool = Fals
     - Vérifie que c'est bien un appel d'offres
     - Si url_tdr est un vrai PDF → téléchargement local
     - Si url_tdr = url_source (fallback) → pas de téléchargement
-    - ✅ Dates corrigées : extraction de la date de publication du texte
+    - ✅ Dates corrigées : extraction de la date de publication et de clôture du texte
+    - ✅ Ignore les offres expirées
     """
     titre = clean_text(data.get('titre', '')).strip()
     organisme = clean_text(data.get('organisme', '')).strip()
@@ -354,13 +418,13 @@ def save_offre_real(data: dict, source: SourceScraping, require_pdf: bool = Fals
     # =========================================================================
     # ✅ EXTRACTION DES DATES AMÉLIORÉE
     # =========================================================================
+    texte_complet = titre + ' ' + description
     
     # 1. Essayer la date extraite par le parser
     date_pub = parse_french_date(data.get('date_publication'))
     
     # 2. Si pas de date ou date = aujourd'hui (scraping), essayer d'extraire du texte
     if not date_pub or date_pub == timezone.now().date():
-        texte_complet = titre + ' ' + description
         extracted_pub = extract_publication_date_from_text(texte_complet)
         if extracted_pub and extracted_pub <= timezone.now().date():
             date_pub = extracted_pub
@@ -376,16 +440,36 @@ def save_offre_real(data: dict, source: SourceScraping, require_pdf: bool = Fals
         date_pub = timezone.now().date()
         logger.warning(f"⚠️ Date de publication corrigée (était dans le futur): {date_pub}")
     
-    # 5. Date de clôture
+    # 5. Date de clôture - Essayer d'extraire du texte
     date_clot = parse_french_date(data.get('date_cloture'))
-    if not date_clot:
-        date_clot = date_pub + timezone.timedelta(days=30)
-        logger.warning(f"⚠️ Date clôture manquante, fixée à J+30: {date_clot}")
     
-    # 6. S'assurer que date_cloture > date_publication
+    # 6. Si pas de date de clôture ou date invalide, essayer d'extraire du texte
+    if not date_clot:
+        extracted_deadline = extract_deadline_from_text(texte_complet)
+        if extracted_deadline:
+            date_clot = extracted_deadline
+            logger.info(f"📅 Date de clôture extraite du texte: {date_clot}")
+        else:
+            # Si toujours pas, fixer à J+30
+            date_clot = date_pub + timezone.timedelta(days=30)
+            logger.warning(f"⚠️ Date clôture manquante, fixée à J+30: {date_clot}")
+    
+    # 7. Vérifier que date_cloture est après date_publication
     if date_clot < date_pub:
         date_clot = date_pub + timezone.timedelta(days=30)
         logger.warning(f"⚠️ Date clôture corrigée (était avant publication): {date_clot}")
+    
+    # 8. Vérifier que la date de clôture n'est pas trop lointaine (> 3 ans)
+    if date_clot > timezone.now().date() + timezone.timedelta(days=365*3):
+        date_clot = date_pub + timezone.timedelta(days=30)
+        logger.warning(f"⚠️ Date clôture trop lointaine (>3 ans), fixée à J+30: {date_clot}")
+    
+    # =========================================================================
+    # ✅ VÉRIFICATION DE LA DATE D'EXPIRATION - IGNORER LES OFFRES EXPIRÉES
+    # =========================================================================
+    if date_clot and date_clot < timezone.now().date():
+        logger.info(f"⏭️ Offre EXPIRÉE ignorée: {titre[:40]}... (clôture: {date_clot})")
+        return 'skipped'
     
     # =========================================================================
     # Téléchargement du PDF à la création
@@ -426,6 +510,12 @@ def save_offre_real(data: dict, source: SourceScraping, require_pdf: bool = Fals
         else:
             logger.info(f"✅ CRÉÉE sans document: {titre[:40]}...")
         
+        # ✅ Après création, vérifier si l'offre est déjà expirée
+        if offre.date_cloture < timezone.now().date():
+            offre.statut = 'Expiré'
+            offre.save(update_fields=['statut'])
+            logger.info(f"⏭️ Offre créée mais déjà expirée, marquée comme Expiré")
+        
         return 'created'
     except Exception as e:
         logger.error(f"❌ Erreur création BDD: {e}")
@@ -437,15 +527,49 @@ def daily_archive_task():
     """Tâche quotidienne unifiée : Archive et purge les offres expirées"""
     logger.info("🗑️ Lancement du cycle de vie des offres (Archivage + Purge)...")
     try:
+        # 1. Marquer les offres expirées
+        marked = mark_expired_offres()
+        logger.info(f"📅 {marked} offres marquées comme expirées")
+        
+        # 2. Supprimer les offres expirées depuis 7 jours
+        from datetime import timedelta
+        cutoff_date = timezone.now().date() - timedelta(days=7)
+        expired_to_delete = AppelOffre.objects.filter(
+            statut='Expiré',
+            date_cloture__lt=cutoff_date
+        )
+        deleted_permanent = expired_to_delete.count()
+        
+        if deleted_permanent > 0:
+            for offre in expired_to_delete:
+                if offre.fichier_pdf:
+                    try:
+                        offre.fichier_pdf.delete(save=False)
+                    except:
+                        pass
+                offre.delete()
+            logger.info(f"🗑️ {deleted_permanent} offres supprimées définitivement")
+        
+        # 3. Archive via la fonction existante
         archived, deleted = archive_and_delete_old_offres(days_to_keep=30)
+        
         return {
             "status": "success",
+            "marked_as_expired": marked,
             "archived_count": archived,
-            "deleted_count": deleted
+            "deleted_count": deleted,
+            "deleted_permanent": deleted_permanent
         }
     except Exception as e:
         logger.error(f"❌ Erreur dans le cycle de vie : {e}")
-        return {"status": "error", "archived_count": 0, "deleted_count": 0}
+        return {
+            "status": "error", 
+            "marked_as_expired": 0, 
+            "archived_count": 0, 
+            "deleted_count": 0,
+            "deleted_permanent": 0,
+            "error": str(e)
+        }
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
