@@ -9,6 +9,7 @@ import logging
 import requests
 import time  
 
+
 from offres.models import SourceScraping, AppelOffre
 from offres.scraping.parsers.Oxfam_parser import OxfamParser
 from offres.scraping.utils import (
@@ -20,8 +21,23 @@ from offres.scraping.utils import (
 from offres.services.notifications import check_and_notify_matches
 from offres.scraping.site_validator import SiteValidator, is_valid_offer_title, is_rejected_content
 
-# ✅ Ajout de l'import pour l'extraction des dates
+from offres.scraping.extraction_helpers import (
+    extract_all_details,
+    extract_pdf_url,
+    is_offer_valid,
+    is_offer_expired,
+    is_date_unrealistic,
+    parse_date_universelle
+    
+)
+
 from offres.scraping.extraction_helpers import extract_publication_date_from_text, extract_deadline_from_text
+
+from offres.scraping.auth_scrapers import AuthenticatedScraper, SeleniumScraper
+from offres.models import SourceCredentials
+
+# ✅ Ajout de l'import pour l'extraction des dates
+#from offres.scraping.extraction_helpers import extract_publication_date_from_text, extract_deadline_from_text
 
 # =============================================================================
 # CONFIGURATION
@@ -43,7 +59,17 @@ from offres.scraping.parsers.joffres_parser import JoffresParser
 from offres.scraping.parsers.abf_burkina_parser import ABFBurkinaScraper
 from offres.scraping.parsers.smart_parser import SmartParser
 from offres.scraping.parsers.afdb_parser import AfDBParser
+from offres.scraping.parsers.psimali_parser import PSIMaliParser
+from offres.scraping.parsers.jaoguinee_parser import JaoGuineeParser
 
+from offres.scraping.parsers.who_parser import WHOParser
+from offres.scraping.parsers.worldbank_parser import WorldBankParser
+from offres.scraping.parsers.enabel_parser import EnabelParser
+from offres.scraping.parsers.isdb_parser import ISDBParser
+from offres.scraping.parsers.marches_securises_parser import MarchesSecurisesParser
+from offres.scraping.parsers.talacom_parser import TalaComParser
+from offres.scraping.parsers.j360_parser import J360Parser
+from offres.scraping.parsers.sangobids_parser import SangoBidsParser
 # =============================================================================
 # REGISTRE DES PARSERS
 # =============================================================================
@@ -53,21 +79,37 @@ PARSER_REGISTRY = {
     "www.unfpa.org": UNFPAParser,
     "procurement-notices.undp.org": UNDPParser,
     "www.afdb.org": AfDBParser,
-    
+    "www.who.int": WHOParser,
+    "www.worldbank.org": WorldBankParser,
+    "www.psimali.ml": PSIMaliParser,
+    "psimali.ml": PSIMaliParser,
+    "www.jaoguinee.com": JaoGuineeParser,
+    "jaoguinee.com": JaoGuineeParser,
+    "www.enabel.be": EnabelParser,
+    "enabel.be": EnabelParser,
+    "www.isdb.org": ISDBParser,
+    "isdb.org": ISDBParser,
+    "www.marches-securises.fr": MarchesSecurisesParser,
+    "marches-securises.fr": MarchesSecurisesParser,
+    "www.tala-com.com": TalaComParser,
+    "tala-com.com": TalaComParser,
     # === SITES BURKINA FASO ===
     "www.agetib.net": AgetibParser,
     "www.sonabel.bf": SONABELParser,
     "www.abfburkina.org": ABFBurkinaScraper,
     "abfburkina.org": ABFBurkinaScraper,
     "burkinafaso.oxfam.org": OxfamParser,
-    
+    "www.j360.info": J360Parser,
+    "j360.info": J360Parser,
+    "bf.sangobids.com": SangoBidsParser,
+    "sangobids.com": SangoBidsParser,
     # === SITES RÉGIONAUX ===
     "www.uemoa.int": UEMOAParser,
     "uemoa.int": UEMOAParser,
     
     # === SITES D'OFFRES INTERNATIONALES ===
     "www.joffres.net": JoffresParser,
-    
+
     # === PARSER PAR DÉFAUT ===
     "default": SmartParser,
 }
@@ -78,30 +120,56 @@ PARSER_REGISTRY = {
 TRUSTED_SOURCES = [
     'unfpa.org',
     'uemoa.int',
+    'undp.org',
+    'globaltenders.com',  
+    'who.int',
+    'worldbank.org',
     'agetib.net',
     'sonabel.bf',
     'abfburkina.org',
     'joffres.net',
-    'oxfam.org',
+    'afdb.org',
+    'psimali.ml',
+    "enabel.be",
+    "isdb.org",
+    "marches-securises.fr",
+    "tala-com.com",
+    'jaoguinee.com',
+    "j360.info",
+    "sangobids.com",
 ]
 
 
 def get_parser_for_source(source):
-    """Retourne le parser approprié pour une source"""
+    """
+    Retourne le parser approprié pour une source
+    ✅ Détecte automatiquement si la source nécessite une authentification
+    """
     try:
         parsed = urlparse(source.url_racine)
         domain = parsed.netloc.lower()
         
-        # SITES QUI NÉCESSITENT JAVASCRIPT
-        JS_REQUIRED_SITES = [
-            'undp.org',
-            'worldbank.org',
-            'un.org',
-            'who.int'
-        ]
-        
+        JS_REQUIRED_SITES = ['undp.org', 'worldbank.org', 'un.org', 'who.int']
         use_js = any(site in domain for site in JS_REQUIRED_SITES)
         
+        # ✅ VÉRIFICATION AUTOMATIQUE : La source a-t-elle des credentials ?
+        try:
+            credentials = source.credentials
+            if credentials and credentials.is_active:
+                creds_dict = credentials.get_credentials()
+                
+                # Choisir le scraper selon le type d'auth
+                if credentials.auth_type == 'SELENIUM':
+                    logger.info(f"🔐 Source protégée détectée: {source.nom} → SeleniumScraper")
+                    return SeleniumScraper(source.url_racine, credentials=creds_dict)
+                else:
+                    logger.info(f"🔐 Source protégée détectée: {source.nom} → AuthenticatedScraper")
+                    return AuthenticatedScraper(source.url_racine, credentials=creds_dict)
+        except SourceCredentials.DoesNotExist:
+            # Pas de credentials → site public
+            pass
+        
+        # Site public → parser normal
         for key, parser_class in PARSER_REGISTRY.items():
             if key in domain:
                 if parser_class is SmartParser or parser_class is None:
@@ -113,8 +181,7 @@ def get_parser_for_source(source):
     except Exception as e:
         logger.error(f"❌ Erreur sélection parser: {e}")
         return SmartParser(source.url_racine)
-
-
+        
 def is_trusted_source(url_racine: str) -> bool:
     """Vérifie si une source est dans la liste blanche"""
     parsed_domain = urlparse(url_racine).netloc.lower()
@@ -344,31 +411,56 @@ def run_scheduled_scraping_task(self, source_id=None):
     }
 
 
+@shared_task
+def daily_scraping_and_verification():
+    """Scraping quotidien + vérification des pays"""
+    from offres.scraping.tasks import run_scheduled_scraping_task
+    
+    # 1. Lancer le scraping
+    result = run_scheduled_scraping_task()
+    
+    # 2. Vérifier les pays
+    from scripts.verifier_pays import verifier_pays
+    is_valid = verifier_pays()
+    
+    if not is_valid:
+        logger.warning("⚠️ Des pays incorrects ont été détectés après le scraping")
+    
+    return {
+        'scraping': result,
+        'verification_pays': is_valid
+    }
+
 @transaction.atomic
 def save_offre_real(data: dict, source: SourceScraping, require_pdf: bool = False) -> str:
     """
-    Sauvegarde une offre avec validation stricte :
-    - Vérifie que c'est bien un appel d'offres
-    - Si url_tdr est un vrai PDF → téléchargement local
-    - Si url_tdr = url_source (fallback) → pas de téléchargement
-    - ✅ Dates corrigées : extraction de la date de publication et de clôture du texte
-    - ✅ Ignore les offres expirées
+    ✅ VERSION STRICTE :
+    - Pas de date de clôture → None (pas de J+30)
+    - Pas de PDF → url_source comme url_tdr
+    - Offres d'emploi → REJET
     """
     titre = clean_text(data.get('titre', '')).strip()
     organisme = clean_text(data.get('organisme', '')).strip()
+    description = clean_text(data.get('description', ''))
     
-    # ✅ VALIDATION 1 : Titre et organisme obligatoires
-    if not titre or not organisme:
-        logger.debug(f"⏭️ Ignorée (titre/organisme vide)")
+    # =========================================================================
+    # ✅ VALIDATION 1 : TITRE ET ORGANISME
+    # =========================================================================
+    if not titre or len(titre) < 15:
+        logger.debug(f"⏭️ Ignorée (titre manquant/court)")
         return 'skipped'
     
-    # ✅ VALIDATION 2 : Vérifier que c'est un appel d'offres
-    if not is_valid_offer_title(titre):
+    # =========================================================================
+    # ✅ VALIDATION 2 : PAS UNE OFFRE D'EMPLOI
+    # =========================================================================
+    from offres.utils.search_keywords import est_appel_offres
+    if not est_appel_offres(titre, description):
         logger.info(f"⏭️ REJETÉE - Pas un appel d'offres: {titre[:50]}...")
         return 'skipped'
     
-    # ✅ VALIDATION 3 : Vérifier que ce n'est pas du contenu non-offre
-    description = clean_text(data.get('description', ''))
+    # =========================================================================
+    # ✅ VALIDATION 3 : CONTENU NON-OFFRE
+    # =========================================================================
     if is_rejected_content(titre + ' ' + description):
         logger.info(f"⏭️ REJETÉE - Contenu non-offre: {titre[:50]}...")
         return 'skipped'
@@ -380,142 +472,175 @@ def save_offre_real(data: dict, source: SourceScraping, require_pdf: bool = Fals
         logger.warning(f"⏭️ Ignorée (pas d'URL): {titre[:50]}...")
         return 'skipped'
     
-    # DÉTECTER si url_tdr est un vrai PDF ou juste une redirection
-    is_real_pdf = False
-    if url_tdr and url_tdr != url_source:
-        is_real_pdf = True
-    
-    # Éviter les doublons
-    existing = None
+    # =========================================================================
+    # ✅ RÉCUPÉRER LE CONTENU DE LA PAGE DÉTAIL
+    # =========================================================================
+    detail_texte = ''
     if url_source:
-        existing = AppelOffre.objects.filter(url_source=url_source).first()
+        try:
+            import requests
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            detail_response = requests.get(url_source, headers=headers, timeout=30, verify=False)
+            if detail_response.status_code == 200:
+                from bs4 import BeautifulSoup
+                detail_soup = BeautifulSoup(detail_response.text, 'html.parser')
+                detail_texte = detail_soup.get_text(separator=' ')
+        except Exception as e:
+            logger.warning(f"⚠️ Erreur page détail: {e}")
     
-    if existing:
-        updated = False
-        
-        if url_tdr and existing.url_tdr != url_tdr:
-            existing.url_tdr = url_tdr
-            updated = True
-        
-        if url_source and existing.url_source != url_source:
-            existing.url_source = url_source
-            updated = True
-        
-        if is_real_pdf and not existing.fichier_pdf:
-            pdf_content = fetch_and_validate_pdf(url_tdr, titre)
-            if pdf_content:
-                filename = f"tdr_{int(time.time())}_{titre[:20].replace(' ', '_')}.pdf"
-                existing.fichier_pdf = ContentFile(pdf_content, name=filename)
-                updated = True
-                logger.info(f"📄 PDF téléchargé en mise à jour: {titre[:40]}...")
-        
-        if updated:
-            existing.save(update_fields=['url_tdr', 'url_source', 'fichier_pdf', 'statut'])
-            logger.info(f"✅ MAJ Réussie: {titre[:40]}...")
-            return 'updated'
+    texte_complet = f"{titre} {description} {detail_texte}"
+    
+    # =========================================================================
+    # ✅ EXTRACTION DES DATES - AUCUN FALLBACK
+    # =========================================================================
+    
+    # Date de publication
+    date_pub = parse_french_date(data.get('date_publication'))
+    if not date_pub:
+        extracted_pub = extract_publication_date_from_text(texte_complet)
+        if extracted_pub:
+            date_pub = extracted_pub
+    
+    # ✅ REJET si pas de date de publication
+    if not date_pub:
+        logger.info(f"⏭️ REJETÉE - Pas de date publication: {titre[:50]}...")
         return 'skipped'
     
-    # =========================================================================
-    # ✅ EXTRACTION DES DATES AMÉLIORÉE
-    # =========================================================================
-    texte_complet = titre + ' ' + description
-    
-    # 1. Essayer la date extraite par le parser
-    date_pub = parse_french_date(data.get('date_publication'))
-    
-    # 2. Si pas de date ou date = aujourd'hui (scraping), essayer d'extraire du texte
-    if not date_pub or date_pub == timezone.now().date():
-        extracted_pub = extract_publication_date_from_text(texte_complet)
-        if extracted_pub and extracted_pub <= timezone.now().date():
-            date_pub = extracted_pub
-            logger.info(f"📅 Date de publication extraite du texte: {date_pub}")
-    
-    # 3. Fallback: aujourd'hui
-    if not date_pub:
-        date_pub = timezone.now().date()
-        logger.info(f"📅 Date de publication par défaut: {date_pub}")
-    
-    # 4. S'assurer que date_pub n'est pas dans le futur
-    if date_pub > timezone.now().date():
-        date_pub = timezone.now().date()
-        logger.warning(f"⚠️ Date de publication corrigée (était dans le futur): {date_pub}")
-    
-    # 5. Date de clôture - Essayer d'extraire du texte
+    # Date de clôture - ❌ AUCUN FALLBACK J+30
     date_clot = parse_french_date(data.get('date_cloture'))
-    
-    # 6. Si pas de date de clôture ou date invalide, essayer d'extraire du texte
     if not date_clot:
         extracted_deadline = extract_deadline_from_text(texte_complet)
         if extracted_deadline:
             date_clot = extracted_deadline
-            logger.info(f"📅 Date de clôture extraite du texte: {date_clot}")
-        else:
-            # Si toujours pas, fixer à J+30
-            date_clot = date_pub + timezone.timedelta(days=30)
-            logger.warning(f"⚠️ Date clôture manquante, fixée à J+30: {date_clot}")
     
-    # 7. Vérifier que date_cloture est après date_publication
-    if date_clot < date_pub:
-        date_clot = date_pub + timezone.timedelta(days=30)
-        logger.warning(f"⚠️ Date clôture corrigée (était avant publication): {date_clot}")
-    
-    # 8. Vérifier que la date de clôture n'est pas trop lointaine (> 3 ans)
-    if date_clot > timezone.now().date() + timezone.timedelta(days=365*3):
-        date_clot = date_pub + timezone.timedelta(days=30)
-        logger.warning(f"⚠️ Date clôture trop lointaine (>3 ans), fixée à J+30: {date_clot}")
+    # ✅ SI PAS DE DATE DE CLÔTURE → None (pas de J+30 !)
+    if not date_clot:
+        logger.info(f"⚠️ Offre sans date de clôture: {titre[:50]}... → None")
+        date_clot = None  # ✅ Laisser vide
     
     # =========================================================================
-    # ✅ VÉRIFICATION DE LA DATE D'EXPIRATION - IGNORER LES OFFRES EXPIRÉES
+    # ✅ DÉTECTION DU PAYS
     # =========================================================================
-    if date_clot and date_clot < timezone.now().date():
-        logger.info(f"⏭️ Offre EXPIRÉE ignorée: {titre[:40]}... (clôture: {date_clot})")
+    pays = data.get('pays')
+    if not pays:
+        from offres.scraping.country_detector import detecter_pays_smart
+        pays = detecter_pays_smart(texte_complet, url=url_source, pays_defaut=None)
+    
+    if not pays:
+        logger.info(f"⏭️ REJETÉE - Pas de pays détecté: {titre[:50]}...")
         return 'skipped'
     
     # =========================================================================
-    # Téléchargement du PDF à la création
+    # ✅ ORGANISME
+    # =========================================================================
+    if not organisme:
+        from offres.scraping.extraction_helpers import extract_organisme
+        if url_source:
+            try:
+                import requests
+                response = requests.get(url_source, timeout=30, verify=False)
+                if response.status_code == 200:
+                    from bs4 import BeautifulSoup
+                    org_soup = BeautifulSoup(response.text, 'html.parser')
+                    organisme = extract_organisme(org_soup, url_source, titre)
+            except:
+                pass
+        
+        if not organisme:
+            from urllib.parse import urlparse
+            try:
+                organisme = urlparse(url_source or url_tdr).netloc.replace('www.', '')
+            except:
+                organisme = 'Inconnu'
+    
+    # =========================================================================
+    # ✅ DOMAINE
+    # =========================================================================
+    domaine = data.get('domaine')
+    if not domaine or domaine == 'Autres':
+        from offres.utils.search_keywords import detecter_domaine
+        domaine = detecter_domaine(titre, description) or 'Autres'
+    
+    # =========================================================================
+    # ✅ VALIDATIONS FINALES
+    # =========================================================================
+    
+    # Date pub ne peut pas être dans le futur
+    if date_pub > timezone.now().date():
+        date_pub = timezone.now().date()
+    
+    # Offre expirée (seulement si date_clot existe)
+    if date_clot and date_clot < timezone.now().date():
+        logger.info(f"⏭️ REJETÉE - Expirée: {titre[:50]}... (clôture: {date_clot})")
+        return 'skipped'
+    
+    # Offre trop ancienne
+    age_jours = (timezone.now().date() - date_pub).days
+    if age_jours > 365:
+        logger.info(f"⏭️ REJETÉE - Trop ancienne ({age_jours}j): {titre[:50]}...")
+        return 'skipped'
+    
+    # =========================================================================
+    # ✅ TÉLÉCHARGEMENT PDF
     # =========================================================================
     fichier_pdf = None
-    if is_real_pdf:
-        pdf_content = fetch_and_validate_pdf(url_tdr, titre)
-        if pdf_content:
-            filename = f"tdr_{int(time.time())}_{titre[:20].replace(' ', '_')}.pdf"
-            fichier_pdf = ContentFile(pdf_content, name=filename)
-            logger.info(f"📄 PDF téléchargé à la création: {titre[:40]}...")
-        elif require_pdf:
-            logger.warning(f"⏭️ Offre ignorée car PDF obligatoire introuvable: {titre[:40]}")
-            return 'skipped'
+    pdf_trouve = False
     
+    if url_source:
+        try:
+            import requests
+            response = requests.get(url_source, timeout=30, verify=False)
+            if response.status_code == 200:
+                from bs4 import BeautifulSoup
+                detail_soup = BeautifulSoup(response.text, 'html.parser')
+                from offres.scraping.extraction_helpers import extract_pdf_url
+                pdf_url = extract_pdf_url(detail_soup, url_source)
+                
+                if pdf_url:
+                    # ✅ Vérifier que c'est un vrai PDF
+                    pdf_response = requests.get(pdf_url, timeout=30, verify=False, headers={'User-Agent': 'Mozilla/5.0'})
+                    if pdf_response.status_code == 200 and pdf_response.content.startswith(b'%PDF'):
+                        pdf_content = fetch_and_validate_pdf(pdf_url, titre)
+                        if pdf_content:
+                            import uuid, re
+                            safe_title = re.sub(r'[^a-zA-Z0-9]', '_', titre[:30])
+                            filename = f"tdr_{safe_title}_{uuid.uuid4().hex[:8]}.pdf"
+                            fichier_pdf = ContentFile(pdf_content, name=filename)
+                            url_tdr = pdf_url
+                            pdf_trouve = True
+                            logger.info(f"📄 PDF téléchargé: {filename}")
+                    else:
+                        logger.warning(f"⚠️ Lien PDF invalide (retourne du HTML): {pdf_url[:60]}")
+        except Exception as e:
+            logger.debug(f"⚠️ Erreur PDF: {e}")
+    
+    # ✅ SI PAS DE PDF → url_tdr = url_source (lien de redirection)
+    if not pdf_trouve:
+        url_tdr = url_source
+        logger.info(f"🔗 Pas de PDF → url_tdr = url_source: {url_tdr[:60]}")
+    
+    # =========================================================================
+    # ✅ SAUVEGARDE
+    # =========================================================================
     try:
         offre = AppelOffre.objects.create(
             titre=titre[:300],
             organisme=organisme[:200],
             description=description[:2000],
-            pays=data.get('pays', getattr(source, 'pays', 'BF')),
+            pays=pays,
+            domaine=domaine,
             date_publication=date_pub,
-            date_cloture=date_clot,
+            date_cloture=date_clot,  # ✅ Peut être None
             url_source=url_source,
-            url_tdr=url_tdr,
-            statut=data.get('statut', 'Ouvert'),
+            url_tdr=url_tdr,  # ✅ url_source si pas de PDF
+            statut='Ouvert',
             mode_acquisition='AUTO',
             source_origine=source,
             fichier_pdf=fichier_pdf,
         )
         
-        if fichier_pdf:
-            logger.info(f"✅ CRÉÉE avec PDF local: {titre[:40]}...")
-        elif is_real_pdf:
-            logger.info(f"✅ CRÉÉE avec TDR externe: {titre[:40]}... | url_tdr={url_tdr}")
-        elif url_tdr == url_source:
-            logger.info(f"✅ CRÉÉE avec redirection: {titre[:40]}... | url_tdr=url_source")
-        else:
-            logger.info(f"✅ CRÉÉE sans document: {titre[:40]}...")
-        
-        # ✅ Après création, vérifier si l'offre est déjà expirée
-        if offre.date_cloture < timezone.now().date():
-            offre.statut = 'Expiré'
-            offre.save(update_fields=['statut'])
-            logger.info(f"⏭️ Offre créée mais déjà expirée, marquée comme Expiré")
-        
+        cloture_info = f"Clôture: {date_clot}" if date_clot else "Clôture: None (vide)"
+        logger.info(f"✅ CRÉÉE: {titre[:40]}... | {pays} | {domaine} | {cloture_info}")
         return 'created'
     except Exception as e:
         logger.error(f"❌ Erreur création BDD: {e}")
@@ -571,17 +696,54 @@ def daily_archive_task():
             "error": str(e)
         }
 
-
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
 def daily_alert_matching_task(self):
-    """Matching offres ↔ critères experts"""
+    """Matching intelligent offres ↔ critères experts avec notifications"""
     try:
-        logger.info("🔔 Matching offres ↔ critères...")
-        count = check_and_notify_matches()
-        logger.info(f"📧 {count} experts notifiés")
-        return {"notified": count}
+        logger.info("🔔 Matching intelligent offres ↔ critères experts...")
+        
+        # 1. Matching classique
+        count_classique = check_and_notify_matches()
+        logger.info(f"📧 {count_classique} experts notifiés (classique)")
+        
+        # 2. ✅ NOUVEAU : Matching intelligent par domaine
+        from offres.services.smart_matching import notifier_tous_les_experts
+        resultats = notifier_tous_les_experts()
+        
+        logger.info(f"🎯 Matching intelligent:")
+        logger.info(f"   • Experts analysés: {resultats['total_experts']}")
+        logger.info(f"   • Experts notifiés: {resultats['experts_notifies']}")
+        logger.info(f"   • Notifications créées: {resultats['total_notifications']}")
+        
+        return {
+            "notified_classique": count_classique,
+            "experts_analyses": resultats['total_experts'],
+            "experts_notifies": resultats['experts_notifies'],
+            "notifications_creees": resultats['total_notifications']
+        }
     except Exception as e:
-        logger.error(f"❌ Erreur matching: {e}")
+        logger.error(f"❌ Erreur matching intelligent: {e}")
         if self.request.retries < self.max_retries:
             raise self.retry(exc=e)
-        return {"notified": 0}
+        return {"notified": 0, "error": str(e)}
+
+
+# Dans offres/tasks.py
+@shared_task
+def daily_maintenance():
+    """Maintenance quotidienne : scraping + vérification + nettoyage"""
+    results = {}
+    
+    # 1. Scraping
+    results['scraping'] = run_scheduled_scraping_task()
+    
+    # 2. Marquer les offres expirées
+    results['expired'] = mark_expired_offres()
+    
+    # 3. Vérifier les pays
+    results['countries_ok'] = verifier_pays()
+    
+    # 4. Supprimer les offres expirées depuis 7 jours
+    results['deleted'] = delete_expired_offres()
+    
+    return results

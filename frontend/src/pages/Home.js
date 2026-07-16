@@ -1,4 +1,3 @@
-// src/pages/Home.jsx
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
 import SearchFilters from '../components/SearchFilters';
@@ -8,11 +7,13 @@ import OfferList from '../components/OfferList';
 const Home = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // ✅ On force le statut à 'Ouvert' par défaut pour ne voir que les offres actives
   const filters = {
     keyword: searchParams.get('keyword') || '',
     pays: searchParams.get('pays') || '',
     domaine: searchParams.get('domaine') || '',
     structure: searchParams.get('structure') || '',
+    statut: searchParams.get('statut') || 'Ouvert', // ✅ Ajouté
     date_publication: searchParams.get('date_publication') || '',
     max_days: searchParams.get('max_days') || '',
   };
@@ -22,7 +23,10 @@ const Home = () => {
   const updateFilters = (newFilters, newPage = 1) => {
     const params = new URLSearchParams();
     Object.entries(newFilters).forEach(([key, value]) => {
-      if (value) params.set(key, value);
+      // ✅ On ignore les valeurs vides ou "toutes" pour ne pas polluer l'URL
+      if (value && value !== '' && value.toLowerCase() !== 'toutes') {
+        params.set(key, value);
+      }
     });
     if (newPage > 1) {
       params.set('page', newPage.toString());
@@ -39,14 +43,12 @@ const Home = () => {
     updateFilters(newFilters, 1);
   };
 
+  // ✅ Débogage : voir ce qui est envoyé à OfferList
+  console.log(' Home.jsx - Filtres actuels:', filters);
+  console.log(' Home.jsx - Page actuelle:', currentPage);
+
   return (
     <div>
-      {/* Hero */}
-      {/*<div className="bg-primary text-white py-5 text-center">
-        <h1 className="display-5 fw-bold">Trouvez votre prochain appel d'offres</h1>
-        <p className="lead">Des milliers d'opportunités à travers l'Afrique et le monde</p>
-      </div>*/}
-
       <SearchFilters 
         onSearch={handleFilterChange}
         initialValues={filters}
@@ -66,6 +68,7 @@ const Home = () => {
               filters={filters}
               currentPage={currentPage}
               onPageChange={handlePageChange}
+              layout="grid" 
             />
           </div>
         </div>

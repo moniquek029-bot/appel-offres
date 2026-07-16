@@ -1,12 +1,12 @@
 /* src/components/Navbar.css */
 
 .navbar {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  background: #002147 !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   padding: 12px 0;
 }
 
-/* Logo circulaire */
+/* Logo circulaire - Dégradé Bleu → Or */
 .logo-container {
   position: relative;
 }
@@ -14,12 +14,12 @@
 .logo-circle {
   width: 50px;
   height: 50px;
-  background: linear-gradient(135deg, #e94560, #0f3460);
+  background: linear-gradient(135deg, #002147, #F59E0B);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 15px rgba(233, 69, 96, 0.3);
+  box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
   transition: transform 0.3s ease;
 }
 
@@ -38,16 +38,13 @@
 .brand-name {
   font-size: 1.3rem;
   font-weight: 700;
-  background: linear-gradient(135deg, #ffffff, #e2e2e2);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: white;
   letter-spacing: -0.5px;
 }
 
 .brand-subtitle {
   font-size: 0.7rem;
-  color: #e94560;
+  color: #F59E0B;
   font-weight: 500;
   letter-spacing: 1px;
 }
@@ -63,44 +60,46 @@
 }
 
 .nav-link:hover {
-  color: rgb(214, 131, 23) !important;
-  background: rgba(233, 69, 96, 0.2);
+  color: #F59E0B !important;
+  background: rgba(245, 158, 11, 0.1);
   transform: translateY(-2px);
 }
 
 .nav-link.active {
-  background: linear-gradient(135deg, #e94560, #0f3460);
-  color: white !important;
+  color: #F59E0B !important;
+  border-bottom: 3px solid #F59E0B;
 }
 
-/* Bouton d'inscription */
+/* Bouton principal */
 .btn-primary {
-  background: linear-gradient(135deg, #e94560, #0f3460);
+  background: linear-gradient(135deg, #F59E0B, #D97706);
   border: none;
+  color: white;
+  font-weight: 600;
   transition: all 0.3s ease;
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(233, 69, 96, 0.4);
+  box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
 }
 
 /* Dropdown menu */
 .dropdown-menu {
-  background: #1a1a2e;
-  border: none;
+  background: #002147;
+  border: 1px solid #003366;
   border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
 
 .dropdown-item {
-  color: #e2e2e2;
+  color: rgba(255, 255, 255, 0.9);
   transition: all 0.2s ease;
 }
 
 .dropdown-item:hover {
-  background: rgba(233, 69, 96, 0.2);
-  color: rgb(229, 134, 9);
+  background: rgba(245, 158, 11, 0.2);
+  color: #F59E0B;
 }
 
 /* Responsive */

@@ -1,7 +1,6 @@
-// src/utils/searchKeywords.js
 /**
  * Système de recherche multilingue centralisé
- * Contient : domaines, pays, dates
+ * ✅ Version synchronisée avec le backend Python
  */
 
 // =============================================================================
@@ -40,6 +39,7 @@ export const DOMAIN_KEYWORDS = {
     'ERP', 'SAP', 'CRM', 'intelligence artificielle', 'blockchain', 'IoT',
     'IT', 'tech', 'technology', 'data', 'données', 'développeur', 'developer',
     'réseau', 'network', 'web', 'ups', 'electrical', 'data center',
+    'accès internet', 'wifi', 'matériel informatique', 'équipement informatique',
   ],
   
   'Ingénierie & Construction': [
@@ -48,6 +48,7 @@ export const DOMAIN_KEYWORDS = {
     'pont', 'bridge', 'autoroute', 'highway', 'génie civil', 'civil engineering',
     'architecture', 'urbanisme', 'urban planning', 'béton', 'concrete',
     'ciment', 'immobilier', 'real estate', 'logement', 'BTP', 'chantier',
+    'travaux de construction', 'travaux de cloisonnement', 'cloisonnement',
   ],
   
   'Santé & Médical': [
@@ -57,6 +58,7 @@ export const DOMAIN_KEYWORDS = {
     'épidémie', 'epidemic', 'maladie', 'disease', 'patient', 'soin', 'care',
     'soins', 'traitement', 'treatment', 'santé publique', 'public health',
     'nutrition', 'hygiène', 'hygiene', 'OMS', 'WHO', 'UNICEF', 'MSF',
+    'centre hospitalier',
   ],
   
   'Éducation & Formation': [
@@ -82,18 +84,22 @@ export const DOMAIN_KEYWORDS = {
     'investissement', 'investment', 'comptabilité', 'accounting', 'audit',
     'fiscal', 'budget', 'trésorerie', 'treasury', 'microfinance',
     'crédit', 'credit', 'épargne', 'savings', 'assurance', 'insurance',
+    'vérification', 'verification', 'spot check', 'spot checks',
   ],
   
   'Management & Administration': [
     'administration', 'administrative', 'administratif', 'management',
     'gestion', 'gouvernance', 'governance', 'stratégie', 'strategy',
     'planning', 'coordination', 'operations', 'project management', 'programme',
+    'portfolio management',
   ],
   
   'Transport & Logistique': [
     'transport', 'logistique', 'logistics', 'mobilité', 'mobility',
     'aéroport', 'airport', 'aviation', 'maritime', 'ferroviaire', 'railway',
     'train', 'véhicule', 'vehicle', 'supply chain', 'procurement', 'purchasing',
+    'carburant', 'fuel', 'combustible', 'essence', 'diesel', 'motocyclette',
+    'motorcycle', 'camion', 'truck', 'livraison', 'delivery',
   ],
   
   'Agriculture & Alimentation': [
@@ -102,19 +108,20 @@ export const DOMAIN_KEYWORDS = {
     'semence', 'seed', 'engrais', 'fertilizer', 'récolte', 'harvest',
     'production agricole', 'agricultural production', 'sécurité alimentaire',
     'food security', 'rural', 'paysan', 'farmer', 'agroalimentaire', 'agro-food',
-    'farming',
+    'farming', 'pêche', 'fishery', 'fishing', 'blue economy', 'économie bleue',
   ],
   
   'Eau & Assainissement': [
-    'eau', 'water', 'assainissement', 'sanitation', 'WASH', 'hydraulique',
-    'hydraulic', 'hydrologie', 'hydrology', 'potable', 'drinking water',
-    'traitement des eaux', 'water treatment',
+    'eau potable', 'drinking water', 'water supply',
+    'assainissement', 'sanitation', 'WASH', 'wash', 'hydraulique',
+    'hydraulic', 'hydrologie', 'hydrology', 'traitement des eaux',
+    'forage', 'borehole', 'adduction d\'eau',
   ],
   
   'Communication & Médias': [
     'communication', 'média', 'media', 'information publique', 'public information',
     'journalisme', 'journalism', 'relations publiques', 'public relations',
-    'marketing', 'social media',
+    'marketing', 'social media', 'documentaire', 'documentary', 'vidéo', 'video',
   ],
   
   'Juridique & Droit': [
@@ -140,12 +147,14 @@ export const DOMAIN_KEYWORDS = {
   
   'Biens & Équipements': [
     'biens', 'goods', 'équipement', 'equipment', 'fourniture', 'supplies',
-    'matériel', 'material', 'mobilier', 'furniture',
+    'matériel', 'material', 'mobilier', 'furniture', 'meuble',
+    'équipement de bureau', 'office equipment', 'imprimante', 'printer',
   ],
   
   'Services & Conseil': [
     'services', 'conseil', 'consultancy', 'consulting', 'advisory',
-    'expertise', 'prestation',
+    'expertise', 'prestation', 'consultant', 'étude', 'évaluation',
+    'bureau d\'études', 'bureau d\'etudes', 'assistance technique',
   ],
 };
 
@@ -172,27 +181,31 @@ export const COUNTRIES = {
   'GB': ['Royaume-Uni', 'United Kingdom', 'UK', 'GB'],
   'FR': ['France', 'FR'],
   'DE': ['Allemagne', 'Germany', 'DE'],
-  // ... (ajouter les autres pays si nécessaire)
+  'GN': ['Guinée', 'Guinea', 'GN'],
+  'CD': ['RD Congo', 'Congo-Kinshasa', 'CD', 'RDC'],
+  'TD': ['Tchad', 'Chad', 'TD'],
+  'CF': ['Centrafrique', 'Central African Republic', 'CF'],
+  'ET': ['Éthiopie', 'Ethiopia', 'ET'],
+  'UG': ['Ouganda', 'Uganda', 'UG'],
+  'MA': ['Maroc', 'Morocco', 'MA'],
+  'BE': ['Belgique', 'Belgium', 'BE'],
+  'IT': ['Italie', 'Italy', 'IT'],
+  'JO': ['Jordanie', 'Jordan', 'JO'],
 };
 
 // =============================================================================
 // FONCTIONS UTILITAIRES
 // =============================================================================
 
-/**
- * Obtient tous les mots-clés associés à un domaine
- */
 export const getDomainKeywords = (domain) => {
   if (!domain) return [];
   
   const domainNormalized = domain.trim();
   
-  // Recherche directe
   if (DOMAIN_KEYWORDS[domainNormalized]) {
     return DOMAIN_KEYWORDS[domainNormalized];
   }
   
-  // Recherche insensible à la casse
   for (const [key, values] of Object.entries(DOMAIN_KEYWORDS)) {
     if (key.toLowerCase() === domainNormalized.toLowerCase()) {
       return values;
@@ -202,9 +215,6 @@ export const getDomainKeywords = (domain) => {
   return [domainNormalized];
 };
 
-/**
- * Obtient les codes pays correspondant à une requête
- */
 export const getCountryCodes = (countryQuery) => {
   if (!countryQuery) return [];
   
@@ -228,9 +238,6 @@ export const getCountryCodes = (countryQuery) => {
   return [...new Set(matchingCodes)];
 };
 
-/**
- * Obtient tous les mots-clés associés à un mot-clé
- */
 export const getRelatedKeywords = (keyword) => {
   if (!keyword) return [];
   
@@ -249,9 +256,6 @@ export const getRelatedKeywords = (keyword) => {
   return Array.from(related);
 };
 
-/**
- * Crée une requête de recherche multilingue
- */
 export const buildMultilingualSearch = (keyword) => {
   if (!keyword || keyword.trim() === '') return '';
   

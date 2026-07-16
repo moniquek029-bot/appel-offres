@@ -1,8 +1,6 @@
 // src/pages/Offres.jsx
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
-import SearchFilters from '../components/SearchFilters';
-import VerticalFilters from '../components/VerticalFilters';
 import OfferList from '../components/OfferList';
 
 const Offres = () => {
@@ -39,46 +37,31 @@ const Offres = () => {
 
   return (
     <div>
-      {/* ✅ BANNIÈRE SIMPLE - PAS DE HERO */}
+      {/* ✅ BANNIÈRE SIMPLE */}
       <div className="bg-light border-bottom py-3">
         <div className="container">
           <div className="d-flex justify-content-between align-items-center">
-            <div>
+            {/*<div>
               <h2 className="mb-0 fw-bold">
                 <i className="bi bi-briefcase-fill text-primary me-2"></i>
                 Tous les appels d'offres
               </h2>
               <p className="text-muted small mb-0">
-                Recherchez et filtrez parmi toutes les offres disponibles
+                {currentPage === 1 ? 'Liste des offres disponibles' : `Page ${currentPage}`}
               </p>
-            </div>
+            </div>*/}
           </div>
         </div>
       </div>
 
-      {/* ✅ FILTRES ET LISTE */}
-      <SearchFilters 
-        onSearch={handleFilterChange}
-        initialValues={filters}
-      />
-
-      <div className="container-fluid py-3">
-        <div className="row">
-          <div className="col-md-3">
-            <VerticalFilters 
-              onFilterChange={handleFilterChange}
-              initialValues={filters}
-            />
-          </div>
-
-          <div className="col-md-9">
-            <OfferList 
-              filters={filters}
-              currentPage={currentPage}
-              onPageChange={handlePageChange}
-            />
-          </div>
-        </div>
+      {/* ✅ UNIQUEMENT LA LISTE DES OFFRES - PLEINE LARGEUR */}
+      <div className="container py-3">
+        <OfferList 
+          filters={filters}
+          currentPage={currentPage}
+          onPageChange={handlePageChange}
+          layout="list"
+        />
       </div>
     </div>
   );

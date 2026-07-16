@@ -1,193 +1,165 @@
 # offres/scraping/parsers/unfpa_parser.py
 from offres.scraping.base import BaseScraper
 from offres.scraping.utils import clean_text, normalize_url
-from offres.scraping.country_detector import detecter_pays_smart
 from offres.scraping.extraction_helpers import (
     extract_all_details,
-    is_offer_valid,
-    extract_pdf_url
+    extract_pdf_url,
 )
+from offres.scraping.pdf_date_extractor import extract_dates_from_pdf
 from offres.utils.search_keywords import detecter_domaine, est_appel_offres
-from offres.utils.offer_validator import is_valid_offer_title
 import logging
 from urllib.parse import urljoin
 from datetime import date, timedelta
+from bs4 import BeautifulSoup
+import re
 
 logger = logging.getLogger(__name__)
 
-
 class UNFPAParser(BaseScraper):
-    """Parser UNFPA - UNIQUEMENT les appels d'offres avec PDF"""
+    """Parser UNFPA - Correction : Scraping PUBLIC forcé (pas d'auth)"""
     
     MOTS_CLES_OFFRES = [
         'recrutement', 'cotation', 'appel', 'achat', 'demande',
         'consultant', 'manifestation', 'intérêt', 'interet',
-        'avis', 'tender', 'bureau d\'études', 'bureau d\'etudes',
-        'fourniture', 'acquisition', 'consultation', 'rfq', 'rfp',
-        'production', 'travaux', 'équipement', 'equipement',
+        'avis', 'tender', 'bureau', 'fourniture', 'acquisition',
+        'consultation', 'rfq', 'rfp', 'production', 'travaux',
+        'équipement', 'equipement', 'kits', 'santé', 'sante',
+        'motocyclette', 'laptop', 'matériel', 'subvention', 'offre'
     ]
     
     def __init__(self, source_url, **kwargs):
         super().__init__(source_url, **kwargs)
-        self.offers = []
         self.base_url = "https://burkinafaso.unfpa.org"
+        # ✅ CORRECTION : Forcer le mode public, désactiver toute tentative de login
+        self.requires_auth = False 
     
-    def detecter_domaine(self, titre, description=""):
-        return detecter_domaine(titre, description)
+    def _normaliser_texte(self, texte: str) -> str:
+        if not texte:
+            return ""
+        texte = texte.replace(''', "'").replace(''', "'")
+        return texte
     
-    def extraire_pdf_unfpa(self, soup, base_url="", url_source=""):
-        """
-        Extraction de PDF spécifique pour UNFPA
-        """
+    def _extraire_dates_pdf(self, pdf_url: str) -> tuple[date | None, date | None]:
+        if not pdf_url or not pdf_url.endswith('.pdf'):
+            return None, None
+        try:
+            return extract_dates_from_pdf(pdf_url)
+        except Exception as e:
+            logger.warning(f"   ⚠️ Erreur extraction PDF: {e}")
+            return None, None
+    
+    def parse(self, soup: BeautifulSoup) -> list[dict]:
+        offers = []
+        processed_urls = set()
+        
         if not soup:
-            return None
+            return offers
         
-        # 1. Chercher les liens de téléchargement directs
-        for link in soup.find_all('a', href=True):
+        logger.info(f"🔍 UNFPA: Analyse de la page {self.source_url}")
+        
+        # ✅ CORRECTION : Élargir la recherche de liens au-delà de "/fr/submission/"
+        # UNFPA utilise aussi /fr/appels-d-offres, /fr/call-for-proposals, etc.
+        liens_cibles = soup.find_all('a', href=True)
+        
+        for link in liens_cibles:
             href = link.get('href', '')
-            texte = link.get_text(strip=True).lower()
+            titre = link.get_text(strip=True)
             
-            if any(kw in href.lower() or kw in texte for kw in ['download', 'telecharger', 'télécharger']):
-                return normalize_url(href, base_url)
-            if href.lower().endswith('.pdf'):
-                return normalize_url(href, base_url)
+            # Filtrer les liens évidents de navigation
+            if any(x in href.lower() for x in ['/login', '/user/', '/fr/about', '/fr/contact', '#', 'javascript:']):
+                continue
+            
+            if not titre or len(titre) < 15:
+                continue
+            
+            titre_norm = self._normaliser_texte(titre).lower()
+            mots_trouves = [mot for mot in self.MOTS_CLES_OFFRES if mot in titre_norm]
+            
+            if not mots_trouves:
+                continue
+            
+            offre_url = urljoin(self.source_url, href)
+            
+            if offre_url in processed_urls:
+                continue
+            processed_urls.add(offre_url)
+            
+            logger.info(f"   📌 Offre potentielle: {titre[:60]}")
+            
+            # Visiter la page de détail
+            detail_soup = self.fetch_page(offre_url)
+            if not detail_soup:
+                continue
+            
+            pdf_url = extract_pdf_url(detail_soup, self.base_url)
+            
+            details = extract_all_details(
+                detail_soup,
+                url=offre_url,
+                pays_defaut='BF',
+                titre=titre,
+                description=titre
+            )
+            
+            if not est_appel_offres(titre, titre):
+                logger.info(f"   ⏭️ REJETÉ (pas un appel d'offres): {titre[:50]}...")
+                continue
+            
+            domaine = detecter_domaine(titre)
+            if details.get('domaine') and details.get('domaine') != 'Autres':
+                domaine = details.get('domaine')
+            
+            url_tdr = pdf_url or details.get('url_tdr') or offre_url
+            
+            date_pub = details.get('date_publication')
+            date_cloture = details.get('date_cloture')
+            
+            if pdf_url and pdf_url.endswith('.pdf'):
+                date_pub_pdf, date_cloture_pdf = self._extraire_dates_pdf(pdf_url)
+                if date_pub_pdf: date_pub = date_pub_pdf
+                if date_cloture_pdf: date_cloture = date_cloture_pdf
+            
+            if not date_pub:
+                date_pub = date.today()
+            
+            if date_cloture and date_cloture < date.today():
+                logger.info(f"   ⏭️ REJETÉ (offre expirée): {titre[:50]}...")
+                continue
+            
+            if not date_cloture:
+                date_cloture = date.today() + timedelta(days=60)
+            
+            offer = {
+                'titre': clean_text(titre)[:300],
+                'url_source': offre_url,
+                'organisme': 'UNFPA Burkina Faso',
+                'pays': details.get('pays', 'BF'),
+                'description': clean_text(titre)[:1000],
+                'date_publication': date_pub,
+                'date_cloture': date_cloture,
+                'url_tdr': url_tdr,
+                'domaine': domaine,
+                'statut': 'Ouvert',
+                'type_offre': 'APPEL_D_OFFRES',
+                'mode_acquisition': 'AUTO',
+            }
+            
+            offers.append(offer)
+            logger.info(f"  ✅ UNFPA Extrait: {titre[:50]}...")
         
-        # 2. Chercher les fichiers dans /sites/default/files/
-        for link in soup.find_all('a', href=True):
-            href = link.get('href', '')
-            if '/sites/default/files/' in href:
-                return normalize_url(href, base_url)
-        
-        # 3. Chercher les extensions de documents
-        extensions_doc = ['.doc', '.docx', '.xls', '.xlsx', '.pdf']
-        for link in soup.find_all('a', href=True):
-            href = link.get('href', '')
-            for ext in extensions_doc:
-                if href.lower().endswith(ext):
-                    return normalize_url(href, base_url)
-        
-        # 4. Chercher les boutons de téléchargement
-        for btn in soup.find_all(['button', 'a']):
-            href = btn.get('href', '')
-            texte = btn.get_text(strip=True).lower()
-            classe = ' '.join(btn.get('class', []))
-            if 'download' in classe.lower() or 'telecharger' in classe.lower() or 'download' in texte:
-                if href:
-                    return normalize_url(href, base_url)
-        
-        # 5. Chercher dans les divs avec classe download
-        for div in soup.find_all('div', class_=lambda x: x and 'download' in x.lower()):
-            for link in div.find_all('a', href=True):
-                href = link.get('href', '')
-                if href:
-                    return normalize_url(href, base_url)
-        
-        # 6. Fallback : URL source
-        if url_source:
-            logger.info(f"  📄 Aucun PDF trouvé, utilisation de l'URL source")
-            return url_source
-        
-        return None
+        logger.info(f"✅ UNFPA: {len(offers)} appel(s) d'offres extraits")
+        return offers
     
     def run(self) -> list[dict]:
-        logger.info(f"🌍 Scraping UNFPA: {self.source_url}")
-        
+        logger.info(f"🌍 Scraping UNFPA (Mode Public): {self.source_url}")
         try:
-            soup = self.fetch_and_parse()
+            # ✅ CORRECTION : use_js=False pour éviter les blocages, et pas d'auth
+            soup = self.fetch_and_parse(use_js=False)
             if not soup:
                 logger.error("❌ Page non récupérée")
                 return []
             
-            title = soup.title.string if soup.title else 'Sans titre'
-            logger.info(f"📄 Page: {title}")
-            
-            self.offers = []
-            processed_urls = set()
-            
-            for link in soup.find_all('a', href=True):
-                titre = link.get_text(strip=True)
-                
-                if not titre or len(titre) < 15:
-                    continue
-                
-                if not any(mot in titre.lower() for mot in self.MOTS_CLES_OFFRES):
-                    continue
-                
-                offre_url = urljoin(self.source_url, link['href'])
-                
-                if offre_url in processed_urls:
-                    continue
-                processed_urls.add(offre_url)
-                
-                if any(x in offre_url.lower() for x in [
-                    '/fr/node/add/', '/login', '/logout', '/user/',
-                    '#', 'javascript:', '/fr/about', '/fr/contact'
-                ]):
-                    continue
-                
-                if not is_valid_offer_title(titre):
-                    logger.debug(f"⏭️ Titre invalide: {titre[:50]}")
-                    continue
-                
-                logger.info(f"📄 Récupération des détails: {titre[:50]}...")
-                
-                detail_soup = self.fetch_page(offre_url)
-                if not detail_soup:
-                    logger.warning(f"⚠️ Impossible de récupérer la page: {offre_url}")
-                    continue
-                
-                # ✅ Extraire le PDF
-                pdf_url = self.extraire_pdf_unfpa(detail_soup, self.base_url, offre_url)
-                
-                details = extract_all_details(
-                    detail_soup,
-                    url=offre_url,
-                    pays_defaut='BF',
-                    titre=titre,
-                    description=titre
-                )
-                
-                # ✅ REJET STRICT
-                if not est_appel_offres(titre, titre):
-                    logger.info(f"   ⏭️ REJETÉ (pas un appel d'offres): {titre[:50]}...")
-                    continue
-                
-                domaine = self.detecter_domaine(titre)
-                if details.get('domaine') and details.get('domaine') != 'Autres':
-                    domaine = details.get('domaine')
-                
-                # ✅ Fallback URL source
-                url_tdr = pdf_url or details.get('url_tdr') or offre_url
-                
-                offer = {
-                    'titre': clean_text(titre)[:300],
-                    'url_source': offre_url,
-                    'organisme': 'UNFPA Burkina Faso',
-                    'pays': details.get('pays', 'BF'),
-                    'description': clean_text(titre)[:1000],
-                    'date_publication': details.get('date_publication', date.today()),
-                    'date_cloture': details.get('date_cloture', date.today() + timedelta(days=30)),
-                    'url_tdr': url_tdr,
-                    'domaine': domaine,
-                    'statut': 'Ouvert',
-                    'type_offre': 'APPEL_D_OFFRES',
-                    'mode_acquisition': 'AUTO',
-                }
-                
-                is_valid, reason = is_offer_valid(offer)
-                if not is_valid:
-                    logger.info(f"   ⏭️ REJETÉ: {reason}")
-                    continue
-                
-                self.offers.append(offer)
-                pdf_status = "PDF trouvé" if pdf_url and pdf_url != offre_url else "URL source"
-                logger.info(f"  ✅ Appel d'offres validé (domaine: {domaine}, {pdf_status})")
-            
-            logger.info(f"✅ UNFPA: {len(self.offers)} appel(s) d'offres extraits")
-            return self.offers
-            
+            return self.parse(soup)
         except Exception as e:
             logger.error(f"❌ Erreur UNFPA: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
             return []

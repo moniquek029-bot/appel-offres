@@ -5,16 +5,15 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from datetime import date, timedelta
 
-from offres.scraping.base import BaseScraper
+from offres.scraping.base import BaseScraper 
 from offres.scraping.utils import clean_text, parse_french_date
 from offres.scraping.extraction_helpers import extract_pdf_url
 from offres.utils.search_keywords import detecter_domaine, est_appel_offres
 
 logger = logging.getLogger(__name__)
 
-
 class ABFBurkinaScraper(BaseScraper):
-    """Scraper ABF Burkina - UNIQUEMENT les appels d'offres"""
+    """Scraper ABF Burkina - Correction de l'extraction des titres et descriptions"""
     
     def __init__(self, source_url: str = "https://www.abfburkina.org/appels-a-projets/", **kwargs):
         base_url = "https://www.abfburkina.org"
@@ -37,9 +36,11 @@ class ABFBurkinaScraper(BaseScraper):
     
     def parse(self, soup: BeautifulSoup) -> list[dict]:
         offres = []
-        articles = soup.find_all(['article', 'div'], class_=re.compile(r'post|entry|item|article|type-page', re.I))
+        # Cibler les articles de blog/offres de manière plus robuste
+        articles = soup.find_all(['article', 'div'], class_=re.compile(r'post|entry|item|article|type-page|call-for-proposal', re.I))
         
         if not articles:
+            # Fallback: chercher les conteneurs de titres
             titres = soup.find_all(['h2', 'h3', 'h4'])
             for titre in titres:
                 parent = titre.find_parent(['article', 'div', 'section'])
@@ -48,25 +49,28 @@ class ABFBurkinaScraper(BaseScraper):
         
         logger.info(f"🔍 ABF Burkina: {len(articles)} blocs potentiels trouvés")
         
-        for i, article in enumerate(articles[:20], 1):
+        for i, article in enumerate(articles[:30], 1):
             try:
                 offre_base = self._parser_article_base(article)
                 if not offre_base:
                     continue
                 
-                if not est_appel_offres(offre_base.get('titre', ''), offre_base.get('description', '')):
-                    logger.info(f"   ⏭️ REJETÉ (pas un appel d'offres): {offre_base.get('titre', '')[:50]}...")
+                # ✅ CORRECTION : Passer titre ET description à la validation
+                titre_valid = offre_base.get('titre', '')
+                desc_valid = offre_base.get('description', '')
+                
+                if not est_appel_offres(titre_valid, desc_valid):
+                    logger.info(f"   ⏭️ REJETÉ (pas un appel d'offres): {titre_valid[:50]}...")
                     continue
                 
                 if offre_base['date_cloture'] and offre_base['date_cloture'] < date.today():
-                    logger.info(f"  ⏭️ Offre expirée ignorée : {offre_base['titre'][:40]}")
+                    logger.info(f"  ⏭️ Offre expirée ignorée : {titre_valid[:40]}")
                     continue
                 
-                logger.info(f"  [{i}/{len(articles)}] Extraction détails: {offre_base['titre'][:50]}...")
+                logger.info(f"  [{i}/{len(articles)}] Extraction détails: {titre_valid[:50]}...")
                 
-                # ✅ Extraire le PDF
                 url_tdr = offre_base.get('url_source')
-                if url_tdr:
+                if url_tdr and url_tdr != self.source_url:
                     detail_soup = self.fetch_page(url_tdr)
                     if detail_soup:
                         pdf_url = extract_pdf_url(detail_soup, self.base_url)
@@ -88,22 +92,29 @@ class ABFBurkinaScraper(BaseScraper):
         return offres
     
     def _parser_article_base(self, article) -> dict | None:
-        titre_elem = article.find(['h2', 'h3', 'h4', 'a'], class_=re.compile(r'title|entry', re.I)) or article.find(['h2', 'h3', 'h4'])
+        # ✅ CORRECTION : Ignorer les éléments de navigation
+        titre_elem = article.find(['h2', 'h3', 'h4', 'a'], class_=re.compile(r'title|entry', re.I)) 
+        if not titre_elem:
+            titre_elem = article.find(['h2', 'h3', 'h4'])
+            
         if not titre_elem:
             return None
         
         titre = clean_text(titre_elem.get_text(strip=True))
-        if len(titre) < 12 or any(w in titre.lower() for w in ['navigation', 'recherche', 'partenaires', 'contact']):
+        
+        # ✅ CORRECTION : Filtre agressif des faux titres
+        if len(titre) < 15 or any(w in titre.lower() for w in ['navigation', 'recherche', 'partenaires', 'contact', 'en savoir plus']):
             return None
         
         description = ""
-        contenu = article.find(['div', 'section', 'p'], class_=re.compile(r'content|entry|text|excerpt', re.I))
+        contenu = article.find(['div', 'section'], class_=re.compile(r'content|entry|text|excerpt|field', re.I))
         if contenu:
             paragraphes = contenu.find_all('p') if hasattr(contenu, 'find_all') else [contenu]
             if paragraphes:
-                description = clean_text(' '.join(p.get_text(strip=True) for p in paragraphes[:2]))
-        if not description:
-            description = titre
+                description = clean_text(' '.join(p.get_text(strip=True) for p in paragraphes[:3]))
+        
+        if not description or len(description) < 20:
+            description = titre # Fallback
 
         url_source = None
         link_inside_title = titre_elem.find('a', href=True) if hasattr(titre_elem, 'find') else None
@@ -132,7 +143,7 @@ class ABFBurkinaScraper(BaseScraper):
                 domaine = domaine_par_categorie
         
         if categorie:
-            description = f"Catégorie / Domaine : {categorie}. {description}"
+            description = f"Catégorie : {categorie}. {description}"
 
         return {
             'titre': titre[:300],
@@ -154,6 +165,7 @@ class ABFBurkinaScraper(BaseScraper):
             r'Deadline\s*:\s*([0-9]{1,2}\s+\w+\s+[0-9]{4})',
             r'Date limite\s*:\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})',
             r'clôture\s*:\s*([0-9]{1,2}\s+\w+\s+[0-9]{4})',
+            r'jusqu\'au\s+([0-9]{1,2}\s+\w+\s+[0-9]{4})',
         ]
         for pattern in patterns:
             match = re.search(pattern, texte, re.IGNORECASE)
@@ -166,18 +178,18 @@ class ABFBurkinaScraper(BaseScraper):
         match = re.search(r'(?:donneur|organisme|bailleur)\s*:\s*([^\n\.]+)', texte, re.IGNORECASE)
         return clean_text(match.group(1)) if match else None
     
-    def _extraire_montant(self, texte: str) -> str | None:
-        match = re.search(r'(?:subvention|montant|financement)\s*:\s*([^\n\.]+)', texte, re.IGNORECASE)
-        return clean_text(match.group(1)) if match else None
-    
     def _extraire_categorie(self, texte: str) -> str | None:
-        match = re.search(r'(?:catégorie|secteur|type)\s*:\s*([^\n\.]+)', texte, re.IGNORECASE)
+        match = re.search(r'(?:catégorie|secteur|type|thématique)\s*:\s*([^\n\.]+)', texte, re.IGNORECASE)
         return clean_text(match.group(1)) if match else None
     
     def _extraire_lien_detail(self, article) -> str | None:
         for lien in article.find_all('a', href=True):
             href = lien['href'].strip()
             texte = lien.get_text(strip=True).lower()
-            if any(m in texte for m in ['lire', 'suite', 'plus', 'voir', 'detail']):
+            # ✅ CORRECTION : Exclure explicitement les boutons "lire la suite"
+            if any(m in texte for m in ['lire', 'suite', 'plus', 'voir', 'detail']) and len(texte) < 30:
+                # Vérifier si ce n'est pas juste un bouton générique
+                if 'en savoir plus' in texte or 'lire la suite' in texte:
+                    continue
                 return urljoin(self.base_url, href)
         return None

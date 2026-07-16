@@ -239,14 +239,14 @@ code {
 
 /* Bouton warning (or/jaune) */
 .btn-warning {
-  background: var(--accent) !important;  /* Or #F59E0B */
+  background: #e29d4f !important;  /* Or #F59E0B */
   border: none !important;
   color: var(--primary-dark) !important;  /* Texte bleu foncé */
   font-weight: 600;
 }
 
 .btn-warning:hover {
-  background: var(--accent-dark) !important;  /* Or foncé #D97706 */
+  background: #D97706 !important;  /* Or foncé #D97706 */
   transform: translateY(-2px);
 }
 
@@ -335,7 +335,7 @@ code {
   font-size: var(--font-xs);
   margin-bottom: var(--spacing-1);
   font-weight: 500;
-  color: var(--gray-700);  /* Gris moyen-foncé */
+  color: #3981e7;  /* Gris moyen-foncé */
 }
 
 /* Focus des inputs - Bordure bleue */
@@ -446,7 +446,7 @@ code {
   background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%) !important;
   color: var(--white) !important;
   border-color: transparent !important;
-  box-shadow: 0 2px 8px rgba(30, 58, 138, 0.3);
+  box-shadow: 0 2px 8px rgba(92, 179, 245, 0.3);
 }
 
 /* Pages désactivées */
@@ -600,7 +600,7 @@ code {
 .dropdown-menu a,
 .dropdown-menu span,
 .dropdown-menu div {
-  color: #1F2937 !important;  /* Gris foncé */
+  color: #3981e7 !important;  /* Gris foncé */
 }
 
 .dropdown-item:hover,
@@ -628,7 +628,7 @@ code {
 
 /* Cartes - Fond gris clair */
 .card {
-  background-color: #f1f2f3;  /* Gris clair personnalisé */
+  background-color: #fafafa;  /* Gris clair personnalisé */
   border: none;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -636,7 +636,7 @@ code {
 
 /* Fond personnalisé pour la page Home */
 .home-page {
-  background-color: #d3e1fb;  /* Bleu clair */
+  background-color: #f5f6f8;  /* Bleu clair */
   min-height: 100vh;
 }
 
@@ -666,3 +666,264 @@ code {
    - .card background-color: #f1f2f3 → Votre couleur
    
    ============================================================================= */
+
+
+
+   /* =============================================================================
+   17. CARTES KPI - DASHBOARD ADMIN (3 options au choix)
+   ============================================================================= */
+
+/* ==========================================================================
+   OPTION 1 : BORDURES COLORÉES + FOND BLANC (RECOMMANDÉ)
+   ========================================================================== */
+
+.kpi-card {
+  background: #ffffff;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+}
+
+.kpi-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.kpi-card-body {
+  padding: 1.25rem 1rem;
+  text-align: center;
+  position: relative;
+  z-index: 2;
+}
+
+/* Bordure colorée en haut (accent) */
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--kpi-color);
+}
+
+/* Icône */
+.kpi-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--kpi-color-light);
+  color: var(--kpi-color);
+  font-size: 1.25rem;
+  transition: all 0.3s ease;
+}
+
+.kpi-card:hover .kpi-icon {
+  background: var(--kpi-color);
+  color: #ffffff;
+  transform: scale(1.1);
+}
+
+/* Valeur */
+.kpi-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #002147;
+  margin-bottom: 0.25rem;
+  line-height: 1;
+}
+
+/* Label */
+.kpi-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.25rem;
+}
+
+/* Sous-texte */
+.kpi-sub {
+  font-size: 0.7rem;
+  color: #9CA3AF;
+}
+
+/* ==========================================================================
+   COULEURS PAR VARIANTE
+   ========================================================================== */
+
+/* Offres - Bleu */
+.kpi-card-offres {
+  --kpi-color: #0D6EFD;
+  --kpi-color-light: rgba(13, 110, 253, 0.1);
+  border: 1px solid rgba(13, 110, 253, 0.2);
+}
+
+/* Users - Vert */
+.kpi-card-users {
+  --kpi-color: #10B981;
+  --kpi-color-light: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+/* Messages - Or */
+.kpi-card-messages {
+  --kpi-color: #F59E0B;
+  --kpi-color-light: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+/* Suggestions - Cyan */
+.kpi-card-suggestions {
+  --kpi-color: #0EA5E9;
+  --kpi-color-light: rgba(14, 165, 233, 0.1);
+  border: 1px solid rgba(14, 165, 233, 0.2);
+}
+
+/* ==========================================================================
+   OPTION 2 : ICÔNE À GAUCHE + VALEUR À DROITE (style moderne)
+   Décommentez pour utiliser à la place de l'option 1
+   ========================================================================== */
+
+/*
+.kpi-card {
+  background: #ffffff;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  border: 1px solid #E5E7EB;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  border-color: var(--kpi-color);
+}
+
+.kpi-card-body {
+  padding: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.kpi-icon {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--kpi-color-light);
+  color: var(--kpi-color);
+  font-size: 1.5rem;
+}
+
+.kpi-content {
+  flex: 1;
+  text-align: left;
+}
+
+.kpi-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #002147;
+  margin: 0;
+  line-height: 1;
+}
+
+.kpi-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6B7280;
+  margin: 0.25rem 0 0 0;
+}
+
+.kpi-sub {
+  display: block;
+  font-size: 0.7rem;
+  color: #9CA3AF;
+  margin-top: 0.25rem;
+}
+*/
+
+/* ==========================================================================
+   OPTION 3 : MINIMALISTE - JUSTE BORDURE GAUCHE COLORÉE
+   Décommentez pour utiliser à la place des options précédentes
+   ========================================================================== */
+
+/*
+.kpi-card {
+  background: #ffffff;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  border: 1px solid #E5E7EB;
+  border-left: 4px solid var(--kpi-color);
+}
+
+.kpi-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.kpi-card-body {
+  padding: 1rem;
+  text-align: left;
+}
+
+.kpi-icon {
+  display: inline-block;
+  color: var(--kpi-color);
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.kpi-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #002147;
+  margin: 0;
+  line-height: 1;
+}
+
+.kpi-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #6B7280;
+  margin: 0.25rem 0 0 0;
+}
+
+.kpi-sub {
+  display: block;
+  font-size: 0.7rem;
+  color: #9CA3AF;
+  margin-top: 0.25rem;
+}
+*/
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+@media (max-width: 768px) {
+  .kpi-value {
+    font-size: 1.5rem;
+  }
+  
+  .kpi-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 1rem;
+  }
+  
+  .kpi-label {
+    font-size: 0.75rem;
+  }
+}
+
+

@@ -1,5 +1,8 @@
-// src/pages/JobDetail.jsx - Version corrigée avec logique intelligente TDR/Redirection
-// + Persistance des filtres via l'historique du navigateur
+// src/pages/JobDetail.jsx - Version finale avec toutes les améliorations
+// ✅ Logique intelligente TDR/Redirection
+// ✅ Gestion des dates de clôture vides
+// ✅ Badges informatifs dynamiques
+// ✅ Persistance des filtres via l'historique du navigateur
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../services/api';
@@ -7,7 +10,7 @@ import { useAuth } from '../context/AuthContext';
 
 const JobDetail = () => {
   const { id } = useParams();
-  const navigate = useNavigate(); // ✅ AJOUTÉ pour la navigation intelligente
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [offre, setOffre] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -21,6 +24,7 @@ const JobDetail = () => {
         console.log('  - fichier_pdf_url:', response.data.fichier_pdf_url);
         console.log('  - url_tdr:', response.data.url_tdr);
         console.log('  - url_source:', response.data.url_source);
+        console.log('  - date_cloture:', response.data.date_cloture);
         setOffre(response.data);
       } catch (err) {
         console.error('❌ Erreur:', err);
@@ -32,36 +36,53 @@ const JobDetail = () => {
     fetchOffre();
   }, [id]);
 
-  // ✅ NOUVELLE FONCTION : Retour intelligent qui préserve les filtres
+  // ✅ Retour intelligent qui préserve les filtres
   const handleBack = () => {
-    // ✅ Si l'historique contient la page précédente (avec filtres), on y retourne
     if (window.history.length > 1) {
       navigate(-1);
     } else {
-      // Sinon, on va vers la liste des offres par défaut
       navigate('/offres');
     }
   };
 
+  // ✅ Formatage des dates avec gestion des valeurs nulles/invalides
   const formatDate = (dateStr) => {
-    if (!dateStr) return 'Non spécifiée';
-    return new Date(dateStr).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+    if (!dateStr) return 'Non précisée';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return 'Non précisée';
+    return d.toLocaleDateString('fr-FR', { 
+      day: '2-digit', 
+      month: 'long', 
+      year: 'numeric' 
+    });
   };
 
-  // ✅ CORRECTION: Construire l'URL complète sans duplication
+  // ✅ Calcul des jours restants (nouvelle fonction)
+  const getJoursRestants = (dateStr) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    
+    const diff = Math.ceil((d - today) / (1000 * 60 * 60 * 24));
+    return diff;
+  };
+
+  // ✅ Construction d'URL complète sans duplication
   const getFullPdfUrl = (url) => {
     if (!url) return null;
     
-    // Si l'URL est déjà absolue (commence par http), la retourner telle quelle
     if (url.startsWith('http://') || url.startsWith('https://')) {
       return url;
     }
     
-    // Sinon, c'est un chemin relatif → ajouter le backend URL
     return `http://localhost:8000${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
-  // ✅ DÉTECTER le type de document disponible
+  // ✅ Détection du type de document avec description
   const getDocumentInfo = () => {
     // Priorité 1 : Fichier PDF local (téléchargé sur notre serveur)
     if (offre?.fichier_pdf_url) {
@@ -70,7 +91,9 @@ const JobDetail = () => {
         url: getFullPdfUrl(offre.fichier_pdf_url),
         label: 'Télécharger le TDR (PDF)',
         icon: 'bi-file-earmark-pdf-fill',
-        isPdf: true
+        isPdf: true,
+        description: 'Document PDF stocké sur notre plateforme',
+        color: '#022186'
       };
     }
     
@@ -79,22 +102,24 @@ const JobDetail = () => {
       const isRedirect = offre.url_tdr === offre.url_source;
       
       if (isRedirect) {
-        // C'est une redirection vers le site source
         return {
           type: 'redirect',
           url: offre.url_tdr,
           label: 'Voir sur le site de l\'organisme',
           icon: 'bi-box-arrow-up-right',
-          isPdf: false
+          isPdf: false,
+          description: 'Pas de PDF disponible - Redirection vers le site source',
+          color: 'linear-gradient(135deg, #2980B9 0%, #3498DB 100%)'
         };
       } else {
-        // C'est un vrai PDF externe
         return {
           type: 'external_pdf',
           url: offre.url_tdr,
           label: 'Télécharger le TDR',
           icon: 'bi-file-earmark-pdf-fill',
-          isPdf: true
+          isPdf: true,
+          description: 'Document PDF hébergé sur le site de l\'organisme',
+          color: 'linear-gradient(135deg, #C0392B 0%, #e05f51 100%)'
         };
       }
     }
@@ -106,7 +131,9 @@ const JobDetail = () => {
         url: offre.url_source,
         label: 'Voir sur le site de l\'organisme',
         icon: 'bi-box-arrow-up-right',
-        isPdf: false
+        isPdf: false,
+        description: 'Pas de PDF disponible - Redirection vers le site source',
+        color: 'linear-gradient(135deg, #2980B9 0%, #3498DB 100%)'
       };
     }
     
@@ -117,19 +144,31 @@ const JobDetail = () => {
     const docInfo = getDocumentInfo();
     
     if (!docInfo) {
-      alert(' Aucun document disponible pour cette offre');
+      alert('❌ Aucun document disponible pour cette offre');
       return;
     }
     
-    console.log(` Ouverture (${docInfo.type}):`, docInfo.url);
+    console.log(`🔗 Ouverture (${docInfo.type}):`, docInfo.url);
     
     try {
-      // ✅ CORRECTION: Utiliser l'URL directement sans manipulation
       window.open(docInfo.url, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      console.error(' Erreur ouverture URL:', err);
-      alert(' Impossible d\'ouvrir le document. Veuillez réessayer.');
+      console.error('❌ Erreur ouverture URL:', err);
+      alert('❌ Impossible d\'ouvrir le document. Veuillez réessayer.');
     }
+  };
+
+  // ✅ Déterminer le statut de l'offre (pour badge)
+  const getStatutOffre = () => {
+    if (!offre?.date_cloture) return { label: 'Date non précisée', color: 'bg-warning text-dark' };
+    
+    const jours = getJoursRestants(offre.date_cloture);
+    if (jours === null) return { label: 'Date invalide', color: 'bg-secondary' };
+    if (jours < 0) return { label: 'Expirée', color: 'bg-secondary' };
+    if (jours === 0) return { label: 'Clôture aujourd\'hui', color: 'bg-danger' };
+    if (jours <= 7) return { label: `${jours}j restants`, color: 'bg-danger' };
+    if (jours <= 30) return { label: `${jours}j restants`, color: 'bg-warning text-dark' };
+    return { label: `${jours}j restants`, color: 'bg-success' };
   };
 
   if (loading) {
@@ -146,7 +185,6 @@ const JobDetail = () => {
     return (
       <div className="container py-5">
         <div className="alert alert-danger">{error || 'Offre non trouvée'}</div>
-        {/* ✅ MODIFIÉ : Bouton retour intelligent */}
         <button 
           onClick={handleBack}
           className="btn btn-outline-primary"
@@ -161,10 +199,11 @@ const JobDetail = () => {
   const docInfo = getDocumentInfo();
   const hasDocument = !!docInfo;
   const isAdmin = user?.role === 'ADMIN';
+  const statutOffre = getStatutOffre();
 
   return (
     <div className="container py-4">
-      {/* ✅ MODIFIÉ : Bouton retour qui préserve les filtres */}
+      {/* Bouton retour qui préserve les filtres */}
       <button 
         onClick={handleBack}
         className="btn btn-outline-secondary mb-3"
@@ -174,40 +213,107 @@ const JobDetail = () => {
       </button>
       
       <div className="card shadow-sm">
+        {/* En-tête avec gradient */}
         <div className="card-header text-white" style={{background: 'linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%)'}}>
           <h3 className="mb-0">{offre.titre}</h3>
         </div>
         
         <div className="card-body">
+          {/* ✅ BADGES D'INFORMATION */}
+          <div className="mb-3 d-flex flex-wrap gap-2">
+            {/* Badge pays */}
+            <span className="badge bg-info">
+              <i className="bi bi-globe-americas me-1"></i>
+              {offre.pays === 'BF' ? '🇧🇫 Burkina Faso' : offre.pays}
+            </span>
+            
+            {/* Badge domaine */}
+            {offre.domaine && offre.domaine !== 'Autres' && (
+              <span className="badge bg-secondary">
+                <i className="bi bi-tag me-1"></i>
+                {offre.domaine}
+              </span>
+            )}
+            
+            {/* Badge statut/date de clôture */}
+            <span className={`badge ${statutOffre.color}`}>
+              <i className="bi bi-calendar-x me-1"></i>
+              {statutOffre.label}
+            </span>
+            
+            {/* Badge type de document */}
+            {docInfo && (
+              <span className={`badge ${docInfo.isPdf ? 'bg-success' : 'bg-primary'}`}>
+                <i className={`bi ${docInfo.isPdf ? 'bi-file-earmark-pdf' : 'bi-box-arrow-up-right'} me-1`}></i>
+                {docInfo.isPdf ? 'PDF disponible' : 'Redirection site source'}
+              </span>
+            )}
+          </div>
+          
           {/* Infos générales */}
           <div className="row mb-4">
             <div className="col-md-6">
-              <p><strong>
-                 <i className="bi bi-c"></i>
-                 Organisme :
-                 </strong> {offre.organisme}
+              <p>
+                <strong>
+                  <i className="bi bi-building me-1 text-muted"></i>
+                  Organisme :
+                </strong>{' '}
+                {offre.organisme || 'Non précisé'}
               </p>
             </div>
+            
+            {/* ✅ DATE DE CLÔTURE AVEC AFFICHAGE CONDITIONNEL */}
             <div className="col-md-6">
               <p>
                 <strong>
                   <i className="bi bi-calendar-x me-1 text-muted"></i>
                   Date de clôture :
-                </strong> {formatDate(offre.date_cloture)}
+                </strong>{' '}
+                {offre.date_cloture ? (
+                  <span className={
+                    getJoursRestants(offre.date_cloture) <= 7 && getJoursRestants(offre.date_cloture) >= 0
+                      ? 'text-danger fw-bold' 
+                      : getJoursRestants(offre.date_cloture) < 0
+                      ? 'text-secondary'
+                      : 'text-success'
+                  }>
+                    {formatDate(offre.date_cloture)}
+                    {getJoursRestants(offre.date_cloture) > 0 && (
+                      <span className="badge bg-warning text-dark ms-2">
+                        {getJoursRestants(offre.date_cloture)}j restants
+                      </span>
+                    )}
+                    {getJoursRestants(offre.date_cloture) === 0 && (
+                      <span className="badge bg-danger ms-2">Aujourd'hui</span>
+                    )}
+                    {getJoursRestants(offre.date_cloture) < 0 && (
+                      <span className="badge bg-secondary ms-2">Expirée</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-muted fst-italic">
+                    <i className="bi bi-info-circle me-1"></i>
+                    Non précisée
+                  </span>
+                )}
               </p>
             </div>
+            
             <div className="col-md-6">
               <p>
                 <strong>
                   <i className="bi bi-calendar-check me-1 text-muted"></i>
                   Publication :
-                </strong> {formatDate(offre.date_publication)}
+                </strong>{' '}
+                {formatDate(offre.date_publication)}
               </p>
             </div>
+            
             <div className="col-md-6">
               <p>
                 <i className="bi bi-globe-americas me-1 text-muted"></i>
-                <strong> Pays :</strong> {offre.pays === 'BF' ? '🇧🇫 Burkina Faso' : offre.pays}
+                <strong> Pays :</strong>{' '}
+                {offre.pays === 'BF' ? '🇧🇫 Burkina Faso' : offre.pays}
               </p>
             </div>
           </div>
@@ -232,73 +338,79 @@ const JobDetail = () => {
             
             {hasDocument ? (
               user ? (
-                // ✅ UTILISATEUR CONNECTÉ : afficher le bouton adapté au type de document
-                <div className="d-flex gap-3 flex-wrap align-items-center">
-                  {docInfo.type === 'local_pdf' && (
-                    // PDF local stocké sur notre serveur
-                    <button 
-                      onClick={handleDownloadPDF} 
-                      className="btn btn-lg fw-bold"
-                      style={{ 
-                        display: 'inline-flex', 
-                        alignItems: 'center', 
-                        gap: '8px', 
-                        background: 'linear-gradient(135deg, #D35400 0%, #F59E0B 100%)', 
-                        border: 'none', 
-                        color: 'white', 
-                        boxShadow: '0 2px 8px rgba(211, 84, 0, 0.15)' 
-                      }}
-                    >
-                      <i className={`bi ${docInfo.icon} me-1`}></i>
-                      {docInfo.label}
-                    </button>
-                  )}
+                <div className="d-flex flex-column gap-3">
+                  {/* Bouton principal */}
+                  <div className="d-flex gap-3 flex-wrap align-items-center">
+                    {docInfo.type === 'local_pdf' && (
+                      <button 
+                        onClick={handleDownloadPDF} 
+                        className="btn btn-lg fw-bold"
+                        style={{ 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          gap: '8px', 
+                          background: docInfo.color, 
+                          border: 'none', 
+                          color: 'white', 
+                          boxShadow: '0 2px 8px rgba(2, 33, 134, 0.15)' 
+                        }}
+                      >
+                        <i className={`bi ${docInfo.icon} me-1`}></i>
+                        {docInfo.label}
+                      </button>
+                    )}
+                    
+                    {docInfo.type === 'external_pdf' && (
+                      <button 
+                        onClick={handleDownloadPDF} 
+                        className="btn btn-lg fw-bold"
+                        style={{ 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          gap: '8px', 
+                          background: docInfo.color, 
+                          border: 'none', 
+                          color: 'white', 
+                          boxShadow: '0 2px 8px rgba(192, 57, 43, 0.15)' 
+                        }}
+                      >
+                        <i className={`bi ${docInfo.icon} me-1`}></i>
+                        {docInfo.label}
+                      </button>
+                    )}
+                    
+                    {docInfo.type === 'redirect' && (
+                      <button 
+                        onClick={handleDownloadPDF} 
+                        className="btn btn-lg fw-bold"
+                        style={{ 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          gap: '8px', 
+                          background: docInfo.color, 
+                          border: 'none', 
+                          color: 'white', 
+                          boxShadow: '0 2px 8px rgba(41, 128, 185, 0.15)' 
+                        }}
+                      >
+                        <i className={`bi ${docInfo.icon} me-1`}></i>
+                        {docInfo.label}
+                      </button>
+                    )}
+                  </div>
                   
-                  {docInfo.type === 'external_pdf' && (
-                    // PDF externe sur un autre site
-                    <button 
-                      onClick={handleDownloadPDF} 
-                      className="btn btn-lg fw-bold"
-                      style={{ 
-                        display: 'inline-flex', 
-                        alignItems: 'center', 
-                        gap: '8px', 
-                        background: 'linear-gradient(135deg, #C0392B 0%, #E74C3C 100%)', 
-                        border: 'none', 
-                        color: 'white', 
-                        boxShadow: '0 2px 8px rgba(192, 57, 43, 0.15)' 
-                      }}
-                    >
-                      <i className={`bi ${docInfo.icon} me-1`}></i>
-                      {docInfo.label}
-                    </button>
-                  )}
-                  
-                  {docInfo.type === 'redirect' && (
-                    // Redirection vers le site source
-                    <button 
-                      onClick={handleDownloadPDF} 
-                      className="btn btn-lg fw-bold"
-                      style={{ 
-                        display: 'inline-flex', 
-                        alignItems: 'center', 
-                        gap: '8px', 
-                        background: 'linear-gradient(135deg, #2980B9 0%, #3498DB 100%)', 
-                        border: 'none', 
-                        color: 'white', 
-                        boxShadow: '0 2px 8px rgba(41, 128, 185, 0.15)' 
-                      }}
-                    >
-                      <i className={`bi ${docInfo.icon} me-1`}></i>
-                      {docInfo.label}
-                    </button>
-                  )}
+                  {/* ✅ NOUVEAU : Information sur le type de document */}
+                  <div className="alert alert-light border d-flex align-items-center gap-2 mb-0">
+                    <i className={`bi ${docInfo.isPdf ? 'bi-file-earmark-check-fill text-success' : 'bi-box-arrow-up-right text-primary'}`}></i>
+                    <small className="text-muted">
+                      {docInfo.description}
+                    </small>
+                  </div>
                 </div>
               ) : (
-                //  UTILISATEUR NON CONNECTÉ : afficher message avec lien de connexion
                 <div className="alert alert-info d-flex flex-column gap-2">
                   <p className="mb-0">
-                    <strong> Connexion requise</strong>
+                    <strong>🔒 Connexion requise</strong>
                   </p>
                   <p className="mb-0 text-muted">
                     <i className="bi bi-info-circle-fill me-1"></i>
@@ -316,10 +428,44 @@ const JobDetail = () => {
                 </div>
               )
             ) : (
-              // ❌ AUCUN DOCUMENT DISPONIBLE
               <div className="alert alert-warning">
                 <i className="bi bi-exclamation-triangle-fill me-2"></i>
                 Aucun document n'est disponible pour cette offre.
+              </div>
+            )}
+          </div>
+          
+          {/* ✅ NOUVEAU : Section métadonnées supplémentaires */}
+          <hr />
+          <div className="row small text-muted">
+            <div className="col-md-6">
+              <p className="mb-1">
+                <i className="bi bi-clock me-1"></i>
+                <strong>Source :</strong>{' '}
+                {offre.source_origine?.nom || 'Non précisée'}
+              </p>
+            </div>
+            <div className="col-md-6">
+              <p className="mb-1">
+                <i className="bi bi-robot me-1"></i>
+                <strong>Mode d'acquisition :</strong>{' '}
+                {offre.mode_acquisition === 'AUTO' ? 'Automatique (scraping)' : 'Manuel'}
+              </p>
+            </div>
+            {offre.url_source && (
+              <div className="col-12 mt-2">
+                <p className="mb-0 text-truncate">
+                  <i className="bi bi-link-45deg me-1"></i>
+                  <strong>URL source :</strong>{' '}
+                  <a 
+                    href={offre.url_source} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-primary"
+                  >
+                    {offre.url_source}
+                  </a>
+                </p>
               </div>
             )}
           </div>

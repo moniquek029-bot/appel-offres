@@ -3,18 +3,14 @@ import React, { useState, useEffect } from 'react';
 import JobCard from './JobCard';
 import { searchOffres } from '../services/api';
 
-const OfferList = ({ filters = {}, currentPage = 1, onPageChange }) => {
+// ✅ AJOUT DE LA PROP 'layout' (valeurs possibles: 'grid' ou 'list')
+const OfferList = ({ filters = {}, currentPage = 1, onPageChange, layout = 'list' }) => {
   const [offers, setOffers] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   
-  // ✅ MODIFICATION : 6 offres par page (3 lignes × 2 colonnes)
-  const ITEMS_PER_PAGE = 4;
-
-  useEffect(() => {
-    fetchOffers();
-  }, [currentPage, filters]);
+  const ITEMS_PER_PAGE = 4; // ✅ 4 offres par page pour les deux vues
 
   const fetchOffers = async () => {
     setLoading(true);
@@ -24,25 +20,38 @@ const OfferList = ({ filters = {}, currentPage = 1, onPageChange }) => {
         page: currentPage, 
         page_size: ITEMS_PER_PAGE 
       };
-      
+    
       if (filters.keyword) params.keyword = filters.keyword;
       if (filters.pays) params.pays = filters.pays;
       if (filters.domaine) params.domaine = filters.domaine;
-      if (filters.structure) params.structure = filters.structure;
+      if (filters.structure && filters.structure !== 'toutes' && filters.structure !== '') {
+        params.structure = filters.structure;
+      }
       if (filters.date_publication) params.date_publication = filters.date_publication;
       if (filters.max_days) params.max_days = filters.max_days;
-
+    
+      if (!filters.statut) {
+        params.statut = 'Ouvert';
+      } else {
+        params.statut = filters.statut;
+      }
+    
       const { results, count } = await searchOffres(params);
       setOffers(Array.isArray(results) ? results : []);
       setTotalCount(count || 0);
       setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
     } catch (error) {
-      console.error('Erreur lors de la récupération des offres:', error);
+      console.error('❌ Erreur fetch offres:', error);
       setOffers([]);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchOffers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, filters]);
 
   const handlePageChange = (page) => {
     if (page >= 1 && page <= totalPages && typeof onPageChange === 'function') {
@@ -53,7 +62,6 @@ const OfferList = ({ filters = {}, currentPage = 1, onPageChange }) => {
   const getPageNumbers = () => {
     const pages = [];
     const maxVisible = 10;
-    
     if (totalPages <= maxVisible) {
       for (let i = 1; i <= totalPages; i++) pages.push(i);
     } else {
@@ -81,7 +89,7 @@ const OfferList = ({ filters = {}, currentPage = 1, onPageChange }) => {
     if (filters.keyword) active.push(`Mot-clé: "${filters.keyword}"`);
     if (filters.pays) active.push(`Pays: ${filters.pays}`);
     if (filters.domaine) active.push(`Domaine: ${filters.domaine}`);
-    if (filters.structure) active.push(`Structure: ${filters.structure}`);
+    if (filters.structure && filters.structure !== 'toutes') active.push(`Structure: ${filters.structure}`);
     if (filters.date_publication) active.push(`Publié le: ${filters.date_publication}`);
     if (filters.max_days) active.push(`Expire dans: ${filters.max_days} jours`);
     return active;
@@ -91,63 +99,62 @@ const OfferList = ({ filters = {}, currentPage = 1, onPageChange }) => {
 
   if (loading) {
     return (
-      <div className="container py-5 text-center">
+      <div className="text-center py-5">
         <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Chargement des offres en cours...</span>
+          <span className="visually-hidden">Chargement des offres...</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="container py-4">
+    <div>
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
-          <h2 className="mb-1">Appels d'offres disponibles</h2>
-          <p className="text-muted small mb-0">
-            {totalCount} offre(s) trouvée(s)
-            {activeFilters.length > 0 && (
-              <span className="ms-2">
-                • Filtres actifs : {activeFilters.join(' | ')}
-              </span>
-            )}
-            {currentPage > 1 && (
-              <span className="ms-2 badge bg-secondary">
-                Page {currentPage}
-              </span>
-            )}
-          </p>
+          <h4 className="mb-0 fw-bold">{totalCount} offre(s) trouvée(s)</h4>
+          {activeFilters.length > 0 && (
+            <p className="text-muted small mb-0 mt-1">
+              Filtres actifs : {activeFilters.join(' | ')}
+            </p>
+          )}
+          {currentPage > 1 && (
+            <span className="badge bg-secondary ms-2">Page {currentPage}</span>
+          )}
         </div>
-        <button 
-          className="btn btn-outline-primary btn-sm d-flex align-items-center gap-2"
-          onClick={fetchOffers}
-          title="Rafraîchir les données"
-        >
-          Actualiser la liste
-        </button>
       </div>
       
-      {/* ✅ MODIFICATION : Grille 2 colonnes (col-md-6) */}
-      <div className="row g-3">
+      {/* ✅ LOGIQUE D'AFFICHAGE CONDITIONNELLE */}
+      <div>
         {offers.length > 0 ? (
-          offers.map(offer => (
-            // ✅ MODIFICATION : col-12 → col-md-6 (2 par ligne sur desktop, 1 sur mobile)
-            <div className="col-12 col-md-6" key={offer.id}>
-              <JobCard offre={offer} />
+          layout === 'grid' ? (
+            // 📐 MODE GRILLE (2 colonnes) pour la Page d'Accueil
+            <div className="row g-3">
+              {offers.map(offer => (
+                <div className="col-md-6" key={offer.id}>
+                  <JobCard offre={offer} />
+                </div>
+              ))}
             </div>
-          ))
+          ) : (
+            // 📋 MODE LISTE (1 colonne verticale) pour la Page Offres
+            <div>
+              {offers.map(offer => (
+                <div className="mb-3" key={offer.id}>
+                  <JobCard offre={offer} />
+                </div>
+              ))}
+            </div>
+          )
         ) : (
-          <div className="col-12">
-            <div className="alert alert-info text-center py-4">
-              {activeFilters.length > 0 
-                ? 'Aucune offre ne correspond à vos filtres. Essayez de les modifier.'
-                : 'Aucune offre disponible pour le moment. Lancez un scraping depuis l\'administration.'}
-            </div>
+          <div className="alert alert-info text-center py-4">
+            {activeFilters.length > 0 
+              ? 'Aucune offre ne correspond à vos filtres.'
+              : 'Aucune offre disponible pour le moment.'}
           </div>
         )}
       </div>
 
-      {/* Pagination */}
+      {/* ✅ PAGINATION */}
       {totalPages > 1 && (
         <nav className="mt-5" aria-label="Pagination des offres">
           <ul className="pagination justify-content-center flex-wrap">
@@ -156,14 +163,13 @@ const OfferList = ({ filters = {}, currentPage = 1, onPageChange }) => {
                 ← Précédent
               </button>
             </li>
-            
             {getPageNumbers().map((page, index) => (
               <li 
                 key={index} 
                 className={`page-item ${page === currentPage ? 'active' : ''} ${page === '...' ? 'disabled' : ''}`}
               >
                 {page === '...' ? (
-                  <span className="page-link">...</span>
+                  <span className="page-link">…</span>
                 ) : (
                   <button className="page-link" onClick={() => handlePageChange(page)}>
                     {page}
@@ -171,7 +177,6 @@ const OfferList = ({ filters = {}, currentPage = 1, onPageChange }) => {
                 )}
               </li>
             ))}
-            
             <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
               <button className="page-link" onClick={() => handlePageChange(currentPage + 1)}>
                 Suivant →

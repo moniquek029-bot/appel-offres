@@ -82,7 +82,12 @@ const Newsletter = ({ variant = 'footer' }) => {
         <div className="input-group input-group-sm">
           <input
             type="email"
-            className="form-control bg-dark text-white border-secondary"
+            className="form-control"
+            style={{
+              backgroundColor: '#f2f4f9',  // Bleu corporate
+              color: '#070000',             // Texte blanc
+              border: '1px solid #230886', // Bordure dorée
+            }}
             placeholder="Votre adresse email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -90,7 +95,13 @@ const Newsletter = ({ variant = 'footer' }) => {
           />
           <button 
             type="submit" 
-            className="btn btn-primary btn-sm"
+            className="btn btn-sm"
+            style={{
+              background: ' #ad5f06',
+              color: '#ffffff',
+              border: 'none',
+              fontWeight: '600',
+            }}
             disabled={loading}
           >
             {loading ? '...' : 'S\'inscrire'}

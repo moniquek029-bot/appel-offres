@@ -941,21 +941,23 @@ const AdminDashboard = () => {
       {/* === ONGLET DASHBOARD === */}
       {activeTab === 'dashboard' && stats && (
         <>
-          {/* Cartes KPI */}
+          {/* Cartes KPI - Version professionnelle */}
           <div className="row g-2 mb-3">
             {[
-              { label: 'Offres', value: stats.offres?.total, bg: 'bg-primary', sub: `Total: ${stats.offres?.total || 0}`, icon: 'bi-file-earmark-text' },
-              { label: 'Users', value: stats.utilisateurs?.total, bg: 'bg-success', sub: `Total: ${stats.utilisateurs?.total || 0}`, icon: 'bi-people' },
-              { label: 'Msg', value: unreadCount, bg: 'bg-warning text-dark', sub: `Total: ${totalCount}`, icon: 'bi-chat-dots' },
-              { label: 'Sug.', value: stats.suggestions?.envoyees, bg: 'bg-info text-white', sub: `Consultées: ${stats.suggestions?.consultees || 0}`, icon: 'bi-lightbulb' }
+              { label: 'Offres', value: stats.offres?.total, sub: `Total: ${stats.offres?.total || 0}`, icon: 'bi-file-earmark-text', variant: 'offres' },
+              { label: 'Users', value: stats.utilisateurs?.total, sub: `Total: ${stats.utilisateurs?.total || 0}`, icon: 'bi-people', variant: 'users' },
+              { label: 'Msg', value: unreadCount, sub: `Total: ${totalCount}`, icon: 'bi-chat-dots', variant: 'messages' },
+              { label: 'Sug.', value: stats.suggestions?.envoyees, sub: `Consultées: ${stats.suggestions?.consultees || 0}`, icon: 'bi-lightbulb', variant: 'suggestions' }
             ].map((card, idx) => (
               <div className="col-6 col-md-3" key={idx}>
-                <div className={`card border-0 shadow-sm ${card.bg} text-white`}>
-                  <div className="card-body py-1 px-2 text-center">
-                    <i className={`bi ${card.icon} mb-1`} style={{ fontSize: '1.2rem' }}></i>
-                    <h4 className="mb-0 fw-bold" style={{ fontSize: '0.95rem' }}>{card.value || 0}</h4>
-                    <p className="mb-0" style={{ fontSize: '0.6rem' }}>{card.label}</p>
-                    <small style={{ fontSize: '0.55rem', opacity: 0.95 }}>{card.sub}</small>
+                <div className={`kpi-card kpi-card-${card.variant}`}>
+                  <div className="kpi-card-body">
+                    <div className="kpi-icon">
+                      <i className={`bi ${card.icon}`}></i>
+                    </div>
+                    <h4 className="kpi-value">{card.value || 0}</h4>
+                    <p className="kpi-label">{card.label}</p>
+                    <small className="kpi-sub">{card.sub}</small>
                   </div>
                 </div>
               </div>
@@ -1649,9 +1651,9 @@ const AdminDashboard = () => {
               <div 
                 className="modal-header py-2 px-3 text-white"
                 style={{
-                  background: 'linear-gradient(135deg, #396cf8 0%, #220bf5e8 100%)',
-                  borderBottom: '3px solid #1346c7',
-                  boxShadow: '0 2px 8px rgba(30, 58, 138, 0.3)'
+                  background: '#032b9a',
+                  borderBottom: '3px solid #4d94f7',
+                  boxShadow: '0 2px 8px rgba(239, 199, 130, 0.3)'
                 }}
               >
                 <h6 className="modal-title" style={{ fontSize: '0.85rem' }}>
@@ -1900,7 +1902,16 @@ const AdminDashboard = () => {
                   </div>
             
                   <div className="d-flex gap-2 mt-3">
-                    <button type="submit" className="btn btn-primary btn-sm" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>
+                    <button type="submit" className="btn btn-sm" 
+                      style={{ 
+                        fontSize: '0.7rem', 
+                        padding: '2px 6px',
+                        background: '#058328',
+                        color: 'white',
+                        border: 'none',
+                        fontWeight: '600'
+                      }}
+                    >
                       <i className="bi bi-check-circle me-1"></i>
                       Publier
                     </button>

@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);  // ✅ NOUVEAU
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
@@ -48,7 +48,7 @@ const Login = () => {
         <div 
           className="card-header text-white text-center py-4"
           style={{
-            background: 'linear-gradient(135deg, #1E293B 0%, #1E3A8A 100%)',
+            background: '#1E3A8A',
             borderBottom: 'none'
           }}
         >
@@ -57,7 +57,7 @@ const Login = () => {
             style={{
               width: '70px',
               height: '70px',
-              background: 'linear-gradient(135deg, #F59E0B, #D97706)',
+              background: 'linear-gradient(135deg, #704803, #884a04)',
               borderRadius: '50%',
               boxShadow: '0 4px 12px rgba(245, 158, 11, 0.4)'
             }}
@@ -79,7 +79,9 @@ const Login = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit}>
+          {/* ✅ autoComplete="off" sur le formulaire pour désactiver le remplissage global */}
+          <form onSubmit={handleSubmit} autoComplete="off">
+            
             {/* Email */}
             <div className="mb-4">
               <label htmlFor="email" className="form-label fw-semibold text-secondary">
@@ -87,9 +89,7 @@ const Login = () => {
                 Adresse e-mail
               </label>
               <div className="input-group">
-                <span className="input-group-text bg-light border-0">
-                  <i className="bi bi-envelope text-primary"></i>
-                </span>
+                <span className="input-group-text bg-light border-0"></span>
                 <input
                   type="email"
                   className="form-control form-control-lg border-0 bg-light"
@@ -99,20 +99,19 @@ const Login = () => {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   disabled={loading}
+                  autoComplete="off" /* ✅ EMPÊCHE LE REMPLISSAGE AUTO À L'OUVERTURE */
                 />
               </div>
             </div>
 
-            {/* ✅ Mot de passe avec icône œil */}
+            {/* Mot de passe avec icône œil */}
             <div className="mb-4">
               <label htmlFor="password" className="form-label fw-semibold text-secondary">
                 <i className="bi bi-lock me-1"></i>
                 Mot de passe
               </label>
               <div className="input-group position-relative">
-                <span className="input-group-text bg-light border-0">
-                  <i className="bi bi-lock text-primary"></i>
-                </span>
+                <span className="input-group-text bg-light border-0"></span>
                 <input
                   type={showPassword ? "text" : "password"}
                   className="form-control form-control-lg border-0 bg-light"
@@ -123,8 +122,9 @@ const Login = () => {
                   required
                   disabled={loading}
                   style={{ paddingRight: '50px' }}
+                  autoComplete="new-password" /* ✅ ASTUCE : "new-password" empêche le navigateur de remplir un mot de passe existant */
                 />
-                {/* ✅ Bouton œil */}
+                {/* Bouton œil */}
                 <button
                   type="button"
                   className="btn position-absolute end-0 top-50 translate-middle-y me-2"
@@ -175,7 +175,7 @@ const Login = () => {
               className="btn btn-primary btn-lg w-100 mb-4"
               disabled={loading}
               style={{
-                background: 'linear-gradient(135deg, #1E3A8A 0%, #1E293B 100%)',
+                background: 'linear-gradient(135deg, #1E3A8A 0%, #04317b 100%)',
                 border: 'none',
                 padding: '12px',
                 fontWeight: '600',
