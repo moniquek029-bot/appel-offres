@@ -8,7 +8,8 @@ from offres.services.email_service import EmailService
 from django.utils import timezone
 from datetime import timedelta
 
-
+from django.core.mail import send_mail
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +36,7 @@ def register_scraping_tasks():
         return False
     # offres/tasks.py - Ajouter à la fin du fichier
 
-from celery import shared_task
-from django.core.mail import send_mail
-from django.conf import settings
-import logging
+
 
 logger = logging.getLogger(__name__)
 

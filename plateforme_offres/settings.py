@@ -112,7 +112,7 @@ DATABASES = {
 }
 
 # ✅ Forcer Django à accepter MariaDB 10.4
-django.db.backends.mysql.base.DatabaseWrapper.check_database_version_supported = lambda self: None
+#django.db.backends.mysql.base.DatabaseWrapper.check_database_version_supported = lambda self: None
 
 AUTH_USER_MODEL = 'offres.Utilisateur'
 
@@ -245,23 +245,29 @@ SIMPLE_JWT = {
     'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
     'TOKEN_TYPE_CLAIM': 'token_type',
 }
-
 # =============================================================================
-# LOGGING - ✅ AJOUTÉ
+# LOGGING - MODE ESPION SQL (Pour trouver le coupable)
 # =============================================================================
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'filters': {
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        }
+    },
     'handlers': {
         'console': {
+            'level': 'DEBUG',
+            'filters': ['require_debug_true'],
             'class': 'logging.StreamHandler',
-        },
-    },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
+        }
     },
     'loggers': {
+        'django.db.backends': {
+            'level': 'DEBUG',
+            'handlers': ['console'],
+        },
         'offres.scraping': {
             'handlers': ['console'],
             'level': 'DEBUG',
@@ -269,6 +275,4 @@ LOGGING = {
         },
     },
 }
-
-
 

@@ -73,7 +73,7 @@ const Navbar = () => {
     <nav 
       className="text-white py-3 px-4 shadow-sm sticky-top"
       style={{
-        background: 'linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%)',
+        background: '#022186',
         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
         zIndex: 1030
       }}
@@ -85,12 +85,12 @@ const Navbar = () => {
           <div style={{
             width: '36px',
             height: '36px',
-            background: 'linear-gradient(135deg, #F59E0B, #1E3A8A)',
+            background: 'linear-gradient(135deg, #022186, #b65703)',
             borderRadius: '50%',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
+            boxShadow: '0 2px 8px rgba(245, 158,  11, 0.3)'
           }}>
             <span style={{ color: 'white', fontWeight: 'bold', fontSize: '1rem' }}>E</span>
           </div>
