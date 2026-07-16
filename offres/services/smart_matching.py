@@ -244,3 +244,122 @@ def notifier_tous_les_experts() -> dict:
         'total_notifications': total_notifs,
         'total_experts': profils.count()
     }
+
+import logging
+from django.utils import timezone
+from datetime import timedelta
+from offres.models import AppelOffre, Utilisateur, Notification
+from offres.services.email_service import EmailService
+
+logger = logging.getLogger(__name__)
+
+def notifier_tous_les_experts():
+    """
+    Envoie des notifications à TOUS les experts pour les nouvelles offres des dernières 24h
+    """
+    hier = timezone.now() - timedelta(days=1)
+    nouvelles_offres = AppelOffre.objects.filter(
+        date_scraping__gte=hier,
+        statut='Ouvert',
+        type_offre='APPEL_D_OFFRES'
+    )
+    
+    if not nouvelles_offres.exists():
+        logger.info("ℹ️ Aucune nouvelle offre à notifier aux experts")
+        return 0
+    
+    experts = Utilisateur.objects.filter(role='EXPERT', is_active=True)
+    total_notifications = 0
+    
+    for expert in experts:
+        try:
+            if not hasattr(expert, 'profil_expert') or not expert.profil_expert.domaines_competence:
+                continue
+            
+            domaines = [d.strip() for d in expert.profil_expert.domaines_competence.split(',')]
+            offres_match = nouvelles_offres.filter(domaine__in=domaines)
+            
+            if not offres_match.exists():
+                continue
+            
+            # Créer les notifications internes (max 5 pour éviter le spam)
+            for offre in offres_match[:5]:
+                Notification.objects.get_or_create(
+                    destinataire=expert,
+                    offre_liee=offre,
+                    objet=f"Nouvelle offre: {offre.titre[:80]}",
+                    defaults={'est_lue': False, 'message': f"Correspond à vos critères: {offre.domaine}"}
+                )
+                total_notifications += 1
+            
+            # Envoyer l'email récapitulatif
+            EmailService.send_nouvelles_offres_notification(
+                expert_email=expert.email,
+                expert_name=f"{expert.first_name} {expert.last_name}".strip() or expert.email,
+                offres=list(offres_match[:5])
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur notification expert {expert.email}: {e}")
+    
+    logger.info(f"✅ {total_notifications} notifications envoyées à {experts.count()} experts")
+    return total_notifications
+
+
+def notifier_tous_les_bureaux():
+    """
+    Envoie des notifications à TOUS les bureaux d'études pour les nouvelles offres des dernières 24h
+    """
+    hier = timezone.now() - timedelta(days=1)
+    nouvelles_offres = AppelOffre.objects.filter(
+        date_scraping__gte=hier,
+        statut='Ouvert',
+        type_offre='APPEL_D_OFFRES'
+    )
+    
+    if not nouvelles_offres.exists():
+        logger.info("ℹ️ Aucune nouvelle offre à notifier aux bureaux")
+        return 0
+    
+    bureaux = Utilisateur.objects.filter(role='BUREAU', is_active=True)
+    total_notifications = 0
+    
+    for bureau_user in bureaux:
+        try:
+            if not hasattr(bureau_user, 'bureauetude'):
+                continue
+            
+            bureau = bureau_user.bureauetude
+            
+            # Filtrer par domaine d'activité du bureau, ou par pays si vide
+            if bureau.domaine_activite:
+                offres_match = nouvelles_offres.filter(domaine__iexact=bureau.domaine_activite)
+            else:
+                pays = str(bureau.pays) if bureau.pays else 'BF'
+                offres_match = nouvelles_offres.filter(pays=pays)
+            
+            if not offres_match.exists():
+                continue
+            
+            # Créer les notifications internes (max 5)
+            for offre in offres_match[:5]:
+                Notification.objects.get_or_create(
+                    destinataire=bureau_user,
+                    offre_liee=offre,
+                    objet=f"Nouvelle offre: {offre.titre[:80]}",
+                    defaults={'est_lue': False, 'message': f"Opportunité pour votre structure"}
+                )
+                total_notifications += 1
+            
+            # Envoyer l'email récapitulatif
+            EmailService.send_nouvelles_offres_notification(
+                expert_email=bureau_user.email,
+                expert_name=bureau.nom_structure or bureau_user.email,
+                offres=list(offres_match[:5])
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur notification bureau {bureau_user.email}: {e}")
+    
+    logger.info(f"✅ {total_notifications} notifications envoyées à {bureaux.count()} bureaux")
+    return total_notifications

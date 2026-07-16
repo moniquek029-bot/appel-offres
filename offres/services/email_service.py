@@ -235,3 +235,118 @@ class EmailService:
             recipient_list=[expert_email],
             html_message=html_message
         )
+
+
+    @staticmethod
+    def send_nouvelles_offres_notification(expert_email, expert_name, offres):
+        """
+        Envoie un email récapitulatif des nouvelles offres à un expert/bureau
+        """
+        try:
+            from django.core.mail import send_mail
+            from django.conf import settings
+        
+            offres_html = ""
+            for offre in offres:
+                offres_html += f"""
+                <div style="border-left: 4px solid #1E3A8A; padding: 10px; margin: 10px 0; background: #f9f9f9;">
+                    <h3 style="margin: 0; color: #1E3A8A;">{offre.titre}</h3>
+                    <p style="margin: 5px 0;"><strong>Organisme:</strong> {offre.organisme}</p>
+                    <p style="margin: 5px 0;"><strong>Pays:</strong> {offre.pays} | <strong>Domaine:</strong> {offre.domaine}</p>
+                    <p style="margin: 5px 0;"><strong>Clôture:</strong> {offre.date_cloture}</p>
+                    <a href="{offre.url_source}" style="color: #F59E0B;">Voir l'offre complète →</a>
+                </div>
+                """
+        
+            subject = f"🔔 {offres.count()} nouvelle(s) offre(s) correspondent à vos critères"
+            message = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif;">
+                <h2 style="color: #1E3A8A;">Bonjour {expert_name},</h2>
+                <p>De nouvelles offres correspondent à votre profil :</p>
+                {offres_html}
+                <p style="margin-top: 20px;">
+                    <a href="{settings.FRONTEND_URL}/offres" 
+                    style="background: #1E3A8A; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+                        Voir toutes les offres
+                    </a>
+                </p>
+                <hr>
+                <p style="font-size: 12px; color: #666;">
+                    Vous recevez cet email car vous êtes inscrit sur Expertise-ID.
+                    Pour modifier vos préférences, connectez-vous à votre compte.
+                </p>
+            </body>
+            </html>
+            """
+        
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [expert_email],
+                html_message=message,
+                fail_silently=False,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"❌ Erreur envoi email nouvelles offres: {e}")
+            return False
+
+    @staticmethod
+    def send_newsletter_hebdomadaire(email, nom, offres):
+        """
+        Envoie la newsletter hebdomadaire aux abonnés
+        """
+        try:
+            from django.core.mail import send_mail
+            from django.conf import settings
+        
+            offres_html = ""
+            for offre in offres:
+                offres_html += f"""
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">
+                        <strong>{offre.titre[:80]}</strong><br>
+                        <small>{offre.organisme} | {offre.pays} | Clôture: {offre.date_cloture}</small>
+                    </td>
+                    <td style="padding: 10px; border-bottom: 1px solid #ddd;">
+                        <a href="{offre.url_source}" style="color: #1E3A8A;">Voir →</a>
+                    </td>
+                </tr>
+                """
+        
+            subject = f"📬 Récapitulatif hebdomadaire - {offres.count()} nouvelles offres"
+            message = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif;">
+                <h2 style="color: #1E3A8A;">Bonjour {nom},</h2>
+                <p>Voici les nouvelles offres de la semaine :</p>
+                <table style="width: 100%; border-collapse: collapse;">
+                    {offres_html}
+                </table>
+                <p style="margin-top: 20px;">
+                    <a href="{settings.FRONTEND_URL}/offres" 
+                    style="background: #1E3A8A; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+                        Voir toutes les offres sur le site
+                    </a>
+                </p>
+            </body>
+            </html>
+            """
+        
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [email],
+                html_message=message,
+                fail_silently=False,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"❌ Erreur newsletter: {e}")
+            return False
+
+
+    

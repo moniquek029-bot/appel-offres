@@ -250,10 +250,10 @@ def delete_expired_offres():
     logger.info("✅ Aucune offre à supprimer")
     return {"deleted": 0}
 
-
+    
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
 def run_scheduled_scraping_task(self, source_id=None):
-    """Tâche Celery pour le scraping (PDF optionnel + Fallback intelligent + Validation des sites)"""
+    """Tâche Celery pour le scraping (PDF optionnel + Fallback intelligent + Validation des sites + Notifications)"""
     
     if source_id:
         sources = SourceScraping.objects.filter(id=source_id, est_actif=True)
@@ -264,7 +264,7 @@ def run_scheduled_scraping_task(self, source_id=None):
     
     if not sources.exists():
         logger.warning("⚠️ Aucune source active trouvée")
-        return {"new": 0, "updated": 0, "skipped": 0, "sources": 0}
+        return {"new": 0, "updated": 0, "skipped": 0, "rejected": 0, "sources": 0}
     
     total_new = 0
     total_updated = 0
@@ -401,7 +401,32 @@ def run_scheduled_scraping_task(self, source_id=None):
             else:
                 logger.error(f"❌ Échec définitif pour {source.nom}")
 
-    logger.info(f"🏁 Terminé | +{total_new} nouvelles | ~{total_updated} MAJ | {total_skipped} ignorées | ❌ {total_rejected} rejetées")
+    # =========================================================================
+    # ✅ NOTIFICATIONS AUTOMATIQUES (Si de nouvelles offres ont été trouvées)
+    # =========================================================================
+    if total_new > 0:
+        logger.info(f"🔔 {total_new} nouvelles offres détectées → Lancement des notifications...")
+        
+        # 1. Notifier les experts
+        try:
+            from offres.services.smart_matching import notifier_tous_les_experts
+            notifier_tous_les_experts()
+            logger.info("✅ Notifications experts envoyées")
+        except Exception as notif_err:
+            logger.error(f"❌ Erreur notification experts: {notif_err}")
+        
+        # 2. Notifier les bureaux d'études
+        try:
+            from offres.services.smart_matching import notifier_tous_les_bureaux
+            notifier_tous_les_bureaux()
+            logger.info("✅ Notifications bureaux envoyées")
+        except Exception as notif_err:
+            logger.error(f"❌ Erreur notification bureaux: {notif_err}")
+    else:
+        logger.info(" Aucune nouvelle offre → Pas de notification envoyée")
+
+    logger.info(f" Terminé | +{total_new} nouvelles | ~{total_updated} MAJ | {total_skipped} ignorées | ❌ {total_rejected} rejetées")
+    
     return {
         "new": total_new, 
         "updated": total_updated, 
@@ -409,6 +434,7 @@ def run_scheduled_scraping_task(self, source_id=None):
         "rejected": total_rejected,
         "sources": sources.count()
     }
+
 
 
 @shared_task
@@ -747,3 +773,40 @@ def daily_maintenance():
     results['deleted'] = delete_expired_offres()
     
     return results
+
+
+
+
+@shared_task
+def newsletter_hebdomadaire_task():
+    """
+    Envoie un récapitulatif hebdomadaire des nouvelles offres aux abonnés newsletter
+    """
+    # Offres des 7 derniers jours
+    sept_jours = timezone.now() - timedelta(days=7)
+    nouvelles_offres = AppelOffre.objects.filter(
+        date_publication__gte=sept_jours,
+        statut='Ouvert',
+        type_offre='APPEL_D_OFFRES'
+    ).order_by('-date_publication')[:20]  # Top 20
+    
+    if not nouvelles_offres.exists():
+        logger.info("Aucune offre pour la newsletter cette semaine")
+        return 0
+    
+    abonnes = InscriptionNewsletter.objects.filter(est_actif=True)
+    
+    total_envois = 0
+    for abonne in abonnes:
+        try:
+            EmailService.send_newsletter_hebdomadaire(
+                email=abonne.email,
+                nom=abonne.nom or abonne.email,
+                offres=nouvelles_offres
+            )
+            total_envois += 1
+        except Exception as e:
+            logger.error(f"❌ Erreur newsletter pour {abonne.email}: {e}")
+    
+    logger.info(f"✅ Newsletter envoyée à {total_envois} abonnés ({nouvelles_offres.count()} offres)")
+    return total_envois

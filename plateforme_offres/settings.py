@@ -55,6 +55,12 @@ CELERY_BEAT_SCHEDULE = {
         'options': {'queue': 'emails'},
     },
 
+
+    'newsletter-hebdomadaire': {
+        'task': 'offres.scraping.tasks.newsletter_hebdomadaire_task',
+        'schedule': crontab(day_of_week=1, hour=8, minute=0),  # Lundi à 8h
+    },
+
      'daily-maintenance': {
         'task': 'offres.tasks.daily_maintenance',
         'schedule': crontab(hour=2, minute=0),  # Tous les jours à 2h
