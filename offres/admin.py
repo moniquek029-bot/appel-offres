@@ -5,11 +5,59 @@ from django.db import models as django_models
 from django.utils.html import format_html
 from offres.scraping.tasks import run_scheduled_scraping_task  # Import direct pour l'action admin 
 from django.contrib.auth.admin import UserAdmin
+from django.urls import path
+from django.shortcuts import redirect
+from django.contrib import messages
+from django.http import HttpResponseRedirect
 from .models import (
     SuggestionOffre, Utilisateur, AppelOffre, SourceScraping, 
     ProfilExpert, CritereRecherche, 
-    InscriptionNewsletter, Notification, BureauEtude, HistoriqueConnexion, Message
+    InscriptionNewsletter, Notification, BureauEtude, HistoriqueConnexion, Message,
+    SourceCredentials
 )
+
+
+# =============================================================================
+# VUES PERSONNALISÉES POUR LE SCRAPING
+# =============================================================================
+
+def run_scraping_view(request, source_id=None):
+    """Vue pour lancer le scraping depuis l'admin"""
+    try:
+        if source_id:
+            result = run_scheduled_scraping_task(source_id=source_id)
+            messages.success(request, f"✅ Scraping terminé ! {result.get('new', 0)} nouvelles offres, {result.get('updated', 0)} mises à jour.")
+        else:
+            # Lancer toutes les sources
+            sources = SourceScraping.objects.filter(est_actif=True)
+            total_new = 0
+            total_updated = 0
+            for source in sources:
+                result = run_scheduled_scraping_task(source_id=source.id)
+                total_new += result.get('new', 0)
+                total_updated += result.get('updated', 0)
+            messages.success(request, f"✅ Scraping terminé sur {sources.count()} sources ! {total_new} nouvelles offres, {total_updated} mises à jour.")
+    except Exception as e:
+        messages.error(request, f"❌ Erreur lors du scraping: {str(e)}")
+    
+    return HttpResponseRedirect(request.META.get('HTTP_REFERER', '/admin/offres/sourcescraping/'))
+
+
+def run_scraping_all_view(request):
+    """Lancer le scraping sur toutes les sources actives"""
+    try:
+        sources = SourceScraping.objects.filter(est_actif=True)
+        total_new = 0
+        total_updated = 0
+        for source in sources:
+            result = run_scheduled_scraping_task(source_id=source.id)
+            total_new += result.get('new', 0)
+            total_updated += result.get('updated', 0)
+        messages.success(request, f"✅ Scraping terminé sur {sources.count()} sources ! {total_new} nouvelles offres, {total_updated} mises à jour.")
+    except Exception as e:
+        messages.error(request, f"❌ Erreur: {str(e)}")
+    
+    return HttpResponseRedirect(request.META.get('HTTP_REFERER', '/admin/offres/sourcescraping/'))
 
 
 # =============================================================================
@@ -21,7 +69,6 @@ class ProfilExpertInline(admin.StackedInline):
     model = ProfilExpert
     can_delete = False
     verbose_name_plural = 'Détails Professionnels (Expert)'
-    # ✅ CORRIGÉ : Utiliser 'domaines_competence' au lieu de 'domaine_competence'
     fields = ('domaines_competence', 'autres_competences', 'cv_fichier', 'disponible')
     readonly_fields = ('date_creation', 'date_mise_a_jour')
 
@@ -31,10 +78,47 @@ class BureauEtudeInline(admin.StackedInline):
     model = BureauEtude
     can_delete = False
     verbose_name_plural = 'Détails Structure (Bureau)'
-    # ✅ CORRIGÉ : Champs corrects pour le bureau (pas de CV)
     fields = ('nom_structure', 'pays', 'adresse', 'domaine_activite', 
               'email_contact', 'telephone', 'site_web')
     readonly_fields = ('date_creation', 'date_mise_a_jour')
+
+
+# =============================================================================
+# ✅ NOUVEAU : Inline pour les credentials d'authentification
+# ✅ DÉPLACÉ AVANT SourceScrapingAdmin pour éviter l'erreur AlreadyRegistered
+# =============================================================================
+
+class SourceCredentialsInline(admin.StackedInline):
+    """Inline pour gérer les credentials directement dans la page SourceScraping"""
+    model = SourceCredentials
+    can_delete = True
+    verbose_name = "Identifiants d'authentification"
+    verbose_name_plural = "Identifiants d'authentification"
+    fk_name = 'source'
+    
+    fieldsets = (
+        ('Informations de connexion', {
+            'fields': ('username', 'password_display', 'login_url', 'auth_type', 'is_active'),
+        }),
+        ('Configuration Formulaire HTML', {
+            'fields': ('username_field', 'password_field'),
+            'classes': ('collapse',),
+            'description': 'Configuration pour l\'authentification par formulaire HTML'
+        }),
+        ('Configuration Selenium', {
+            'fields': ('username_selector', 'password_selector', 'submit_selector', 'success_indicator'),
+            'classes': ('collapse',),
+            'description': 'Configuration pour l\'authentification avec Selenium (sites JavaScript)'
+        }),
+    )
+    
+    readonly_fields = ('password_display', 'last_login')
+    
+    def password_display(self, obj):
+        if obj.pk and obj.encrypted_password:
+            return "•••••••••••• (chiffré)"
+        return "Non défini"
+    password_display.short_description = "Mot de passe"
 
 
 # =============================================================================
@@ -48,7 +132,6 @@ class CustomUserAdmin(UserAdmin):
     list_display = ('last_name', 'first_name', 'email', 'telephone', 'pays', 'role', 'is_active')
     ordering = ('email',)
     
-    # ✅ CORRIGÉ : Ajout de 'username' None pour éviter les erreurs
     list_display_links = ('email',)
     
     fieldsets = (
@@ -65,7 +148,6 @@ class CustomUserAdmin(UserAdmin):
         }),
     )
     
-    # ✅ CORRIGÉ : get_inlines simplifié
     def get_inlines(self, request, obj=None):
         inlines = []
         if obj:
@@ -78,7 +160,7 @@ class CustomUserAdmin(UserAdmin):
     readonly_fields = ('last_login', 'date_joined')
     
     def has_add_permission(self, request):
-        return True  # L'admin peut créer des utilisateurs
+        return True
     
     formfield_overrides = {
         django_models.DateField: {
@@ -122,12 +204,12 @@ class AppelOffreAdmin(admin.ModelAdmin):
 
 
 # =============================================================================
-# SOURCES DE SCRAPING
+# SOURCES DE SCRAPING - AVEC BOUTON "LANCER" ET INLINE CREDENTIALS
 # =============================================================================
 
 @admin.register(SourceScraping)
 class SourceScrapingAdmin(admin.ModelAdmin):
-    list_display = ['nom', 'url_racine', 'pays', 'parser', 'use_js', 'delay', 'est_actif', 'last_scraped']
+    list_display = ['nom', 'url_racine', 'pays', 'parser', 'use_js', 'delay', 'est_actif', 'last_scraped', 'scrape_button']
     list_filter = ['est_actif', 'pays', 'parser']
     search_fields = ['nom', 'url_racine']
     list_editable = ['est_actif', 'delay', 'use_js']
@@ -145,7 +227,45 @@ class SourceScrapingAdmin(admin.ModelAdmin):
         }),
     )
     
+    # ✅ Inline des credentials (défini plus haut dans le fichier)
+    inlines = [SourceCredentialsInline]
+    
     readonly_fields = ['last_scraped', 'created_at', 'updated_at']
+    
+    def scrape_button(self, obj):
+        """Bouton pour lancer le scraping sur une source"""
+        url = f'/admin/run-scraping/{obj.id}/'
+        return format_html(
+            '<a class="button" href="{}" style="background: #28a745; color: white; padding: 5px 12px; text-decoration: none; border-radius: 3px; font-size: 12px;">🚀 Lancer</a>',
+            url
+        )
+    scrape_button.short_description = 'Scraping'
+    scrape_button.allow_tags = True
+    
+    def get_urls(self):
+        """Ajouter des URLs personnalisées"""
+        urls = super().get_urls()
+        custom_urls = [
+            path('run-scraping/<int:source_id>/', self.admin_site.admin_view(run_scraping_view), name='run_scraping'),
+            path('run-scraping-all/', self.admin_site.admin_view(run_scraping_all_view), name='run_scraping_all'),
+        ]
+        return custom_urls + urls
+    
+    actions = ['run_scraping_action']
+    
+    def run_scraping_action(self, request, queryset):
+        """Action pour lancer le scraping sur plusieurs sources sélectionnées"""
+        try:
+            total_new = 0
+            total_updated = 0
+            for source in queryset.filter(est_actif=True):
+                result = run_scheduled_scraping_task(source_id=source.id)
+                total_new += result.get('new', 0)
+                total_updated += result.get('updated', 0)
+            self.message_user(request, f"✅ Scraping terminé sur {queryset.count()} sources ! {total_new} nouvelles offres, {total_updated} mises à jour.")
+        except Exception as e:
+            self.message_user(request, f"❌ Erreur: {str(e)}", level='ERROR')
+    run_scraping_action.short_description = "🚀 Lancer le scraping sur les sources sélectionnées"
 
 
 # =============================================================================
@@ -156,7 +276,6 @@ class SourceScrapingAdmin(admin.ModelAdmin):
 class ProfilExpertAdmin(admin.ModelAdmin):
     """L'administrateur voit les infos clés pour la sélection"""
     
-    # ✅ CORRIGÉ : 'domaine_competence' → 'domaines_competence'
     list_display = ('get_nom_complet', 'domaines_competence', 'get_cv_link', 'disponible', 'date_mise_a_jour')
     search_fields = ('utilisateur__last_name', 'utilisateur__first_name', 'domaines_competence')
     list_filter = ('disponible',)
@@ -170,7 +289,7 @@ class ProfilExpertAdmin(admin.ModelAdmin):
     def get_cv_link(self, obj):
         if obj.cv_fichier:
             return format_html('<a href="{}" target="_blank">📄 Voir le CV</a>', obj.cv_fichier.url)
-        return "❌ Aucun CV"
+        return " Aucun CV"
     get_cv_link.short_description = "Curriculum Vitae"
     
     def get_nom_complet(self, obj):
@@ -189,7 +308,6 @@ class ProfilExpertAdmin(admin.ModelAdmin):
 class BureauEtudeAdmin(admin.ModelAdmin):
     """Gestion du profil Bureau - Lecture seule pour l'admin"""
     
-    # ✅ CORRIGÉ : Pas de CV, champs corrects
     list_display = ('nom_structure', 'domaine_activite', 'pays', 'telephone', 'email_contact', 'get_gestionnaire')
     search_fields = ('nom_structure', 'email_contact', 'gestionnaire__email', 'gestionnaire__first_name')
     list_filter = ('pays',)
@@ -286,12 +404,10 @@ class SuggestionOffreAdmin(admin.ModelAdmin):
     )
     
     def get_readonly_fields(self, request, obj=None):
-        if obj:  # Modification d'une suggestion existante
+        if obj:
             return ('date_suggestion',)
         return ()
 
-
-# offres/admin.py - Ajouter à la fin du fichier
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
@@ -318,4 +434,4 @@ class HistoriqueConnexionAdmin(admin.ModelAdmin):
         return False
     
     def has_change_permission(self, request, obj=None):
-        return False        
+        return False

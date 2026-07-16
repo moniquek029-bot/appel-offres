@@ -16,6 +16,21 @@ from django.db import transaction
 from datetime import timedelta
 from datetime import datetime
 
+
+
+from offres.services.smart_matching import (
+    trouver_offres_pour_expert,
+    notifier_expert_nouvelles_offres,
+    notifier_tous_les_experts,
+    detecter_domaines_from_texte,
+    DOMAINES_KEYWORDS
+)
+   
+from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
+from django.utils import timezone
+from .serializers import SuggestionOffreExpertSerializer, ReponseSuggestionSerializer
+
 from offres.services.email_service import EmailService
 
 from rest_framework import status
@@ -178,7 +193,7 @@ class ChangePasswordView(generics.UpdateAPIView):
 
 # Classe de pagination personnalisée
 class CustomPagination(PageNumberPagination):
-    page_size = 4  # ✅ 4 offres par page
+    page_size = 4  #  4 offres par page
     page_size_query_param = 'page_size'
     max_page_size = 100
 
@@ -221,38 +236,42 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
     # offres/views.py - Modifier AppelOffreViewSet.get_queryset()
 
     def get_queryset(self):
-        """Récupère le queryset avec filtres optimisés"""
-        # ✅ PAR DÉFAUT : UNIQUEMENT LES APPELS D'OFFRES
+        """Récupère le queryset avec filtres optimisés et robustes"""
+        # 1. Base : Uniquement les appels d'offres
         queryset = AppelOffre.objects.filter(type_offre='APPEL_D_OFFRES')
-
-        # ✅ OPTION : Si l'admin veut voir tous les types
+    
+        # 2. Statut (Par défaut : Ouvert)
+        statut = self.request.query_params.get('statut') or self.request.query_params.get('status')
+        if statut and statut.strip().lower() != 'tous':
+            queryset = queryset.filter(statut=statut.strip())
+        else:
+            queryset = queryset.filter(statut='Ouvert')
+    
+        # 3. Option admin : tout voir
         show_all = self.request.query_params.get('show_all', 'false')
         if show_all.lower() == 'true':
             queryset = AppelOffre.objects.all()
     
-        # ✅ FILTRE PAR TYPE D'OFFRE (si spécifié)
-        type_offre = self.request.query_params.get('type_offre')
-        if type_offre:
-            queryset = queryset.filter(type_offre=type_offre)
+        # 4. Type d'offre
+        type_offre_param = self.request.query_params.get('type_offre')
+        if type_offre_param:
+            queryset = queryset.filter(type_offre=type_offre_param.strip())
     
-        # 1. STATUT
-        statut = self.request.query_params.get('statut') or self.request.query_params.get('status')
-        if statut:
-            queryset = queryset.filter(statut=statut)
-    
-        # 2. MOTS-CLÉS
+        # 5. Mots-clés
         keyword = self.request.query_params.get('keyword') or self.request.query_params.get('search')
         if keyword:
+            keyword_clean = keyword.strip()
             queryset = queryset.filter(
-                Q(titre__icontains=keyword) | 
-                Q(organisme__icontains=keyword) |
-                Q(description__icontains=keyword)
+                Q(titre__icontains=keyword_clean) | 
+                Q(organisme__icontains=keyword_clean) |
+                Q(description__icontains=keyword_clean)
             )
     
-        # 3. DOMAINE
+        # 6. DOMAINE (Filtrage robuste avec nettoyage des espaces)
         domaine = self.request.query_params.get('domaine') or self.request.query_params.get('categorie')
         if domaine:
-            if domaine.lower() in ['autres', 'non classifié', 'non_classifie']:
+            domaine_clean = domaine.strip()
+            if domaine_clean.lower() in ['autres', 'non classifié', 'non_classifie']:
                 queryset = queryset.filter(
                     Q(domaine__isnull=True) | 
                     Q(domaine='') | 
@@ -260,72 +279,76 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                     Q(domaine__iexact='non classifié')
                 )
             else:
-                queryset = queryset.filter(domaine__iexact=domaine)
+                # ✅ Utilisation de __iexact pour une correspondance exacte insensible à la casse
+                queryset = queryset.filter(domaine__iexact=domaine_clean)
     
-        # 4. PAYS
+        # 7. PAYS (Filtrage robuste avec nettoyage et majuscules)
         pays = self.request.query_params.get('pays') or self.request.query_params.get('country')
         if pays:
-            if len(pays) == 2 and pays.isalpha():
-                queryset = queryset.filter(pays=pays.upper())
+            pays_clean = pays.strip().upper()
+            if len(pays_clean) == 2 and pays_clean.isalpha():
+                queryset = queryset.filter(pays=pays_clean)
             else:
-                country_codes = get_country_codes(pays)
+                country_codes = get_country_codes(pays_clean)
                 if country_codes:
                     queryset = queryset.filter(pays__in=country_codes)
                 else:
-                    queryset = queryset.filter(pays=pays)
+                    queryset = queryset.filter(pays__iexact=pays_clean)
     
-        # 5. STRUCTURE
+        # 8. STRUCTURE
         structure = self.request.query_params.get('structure')
         if structure:
-            if structure == 'nationale':
-                queryset = queryset.filter(
-                    Q(organisme__icontains='Gouvernement') |
-                    Q(organisme__icontains='Ministère') |
-                    Q(organisme__icontains='Burkina') |
-                    Q(organisme__icontains='BF') |
-                    Q(pays='BF')
-                )
-            elif structure == 'internationale':
-                queryset = queryset.filter(
-                    Q(organisme__icontains='UN') |
-                    Q(organisme__icontains='ONU') |
-                    Q(organisme__icontains='Banque Mondiale') |
-                    Q(organisme__icontains='World Bank') |
-                    Q(organisme__icontains='UEMOA') |
-                    Q(organisme__icontains='Union Européenne') |
-                    Q(organisme__icontains='BAD') |
-                    Q(organisme__icontains='AFD') |
-                    Q(organisme__icontains='UNICEF') |
-                    Q(organisme__icontains='OMS') |
-                    Q(organisme__icontains='WHO') |
-                    Q(organisme__icontains='UNDP') |
-                    Q(organisme__icontains='PNUD') |
-                    ~Q(pays='BF')
-                )
+            structure_clean = structure.strip().lower()
+            if structure_clean in ['nationale', 'internationale']:
+                if structure_clean == 'nationale':
+                    queryset = queryset.filter(
+                        Q(organisme__icontains='Gouvernement') |
+                        Q(organisme__icontains='Ministère') |
+                        Q(organisme__icontains='Burkina') |
+                        Q(organisme__icontains='BF') |
+                        Q(pays='BF')
+                    )
+                elif structure_clean == 'internationale':
+                    queryset = queryset.filter(
+                        Q(organisme__icontains='UN') |
+                        Q(organisme__icontains='ONU') |
+                        Q(organisme__icontains='Banque Mondiale') |
+                        Q(organisme__icontains='World Bank') |
+                        Q(organisme__icontains='UEMOA') |
+                        Q(organisme__icontains='Union Européenne') |
+                        Q(organisme__icontains='BAD') |
+                        Q(organisme__icontains='AFD') |
+                        Q(organisme__icontains='UNICEF') |
+                        Q(organisme__icontains='OMS') |
+                        Q(organisme__icontains='WHO') |
+                        Q(organisme__icontains='UNDP') |
+                        Q(organisme__icontains='PNUD') |
+                        ~Q(pays='BF')
+                    )
     
-        # 6. DATE DE PUBLICATION
+        # 9. DATE DE PUBLICATION
         date_pub = self.request.query_params.get('date_publication')
         if date_pub:
             try:
-                date_obj = datetime.strptime(date_pub, '%Y-%m-%d').date()
+                date_obj = datetime.strptime(date_pub.strip(), '%Y-%m-%d').date()
                 queryset = queryset.filter(date_publication=date_obj)
             except (ValueError, TypeError):
                 pass
     
-        # 7. DATE DE CLÔTURE
+        # 10. DATE DE CLÔTURE
         date_cloture = self.request.query_params.get('date_cloture')
         if date_cloture:
             try:
-                date_obj = datetime.strptime(date_cloture, '%Y-%m-%d').date()
+                date_obj = datetime.strptime(date_cloture.strip(), '%Y-%m-%d').date()
                 queryset = queryset.filter(date_cloture__lte=date_obj)
             except (ValueError, TypeError):
                 pass
     
-        # 8. MAX_DAYS
+        # 11. MAX_DAYS (expire dans X jours)
         max_days = self.request.query_params.get('max_days')
         if max_days:
             try:
-                days = int(max_days)
+                days = int(max_days.strip())
                 today = timezone.now().date()
                 date_limite = today + timedelta(days=days)
                 queryset = queryset.filter(
@@ -334,9 +357,11 @@ class AppelOffreViewSet(viewsets.ModelViewSet):
                 )
             except (ValueError, TypeError):
                 pass
-       
+    
+        # 12. TRI : Plus récentes d'abord
         return queryset.order_by('-date_publication', '-date_scraping')
 
+        
     def create(self, request, *args, **kwargs):
         """
         Création d'une offre avec support d'upload de fichier
@@ -892,7 +917,7 @@ class AdminDashboardView(APIView):
             Q(titre__icontains='demo') | Q(titre__icontains='Demo')
         )
         
-        total_offres = offres_reelles.count()
+        total_offres = AppelOffre.objects.filter(statut='Ouvert').count()
         offres_scrapees = offres_reelles.filter(mode_acquisition='AUTO').count()
         offres_manuelles = offres_reelles.filter(mode_acquisition='MANUEL').count()
         offres_actives = offres_reelles.filter(statut='Ouvert').count()
@@ -1907,11 +1932,7 @@ def admin_list_experts_with_profiles(request):
             {'error': f'Erreur: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-    
-from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
-from django.utils import timezone
-from .serializers import SuggestionOffreExpertSerializer, ReponseSuggestionSerializer
+ 
 
 
 class SuggestionExpertViewSet(viewsets.ViewSet):
@@ -2126,3 +2147,203 @@ class NotificationUserViewSet(viewsets.ModelViewSet):
             })
         except Exception as e:
             return Response({'error': str(e)}, status=500)
+
+
+
+class ExpertMatchingView(APIView):
+    """
+    API pour trouver les offres correspondant aux critères d'un expert
+    URL: GET /api/experts/matching/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            # Récupérer le profil expert de l'utilisateur
+            profil = ProfilExpert.objects.get(utilisateur=request.user)
+            
+            # Trouver les offres correspondantes
+            offres_match = trouver_offres_pour_expert(profil)
+            
+            # Sérialiser les résultats
+            resultats = []
+            for match in offres_match[:20]:  # Limiter à 20
+                offre = match['offre']
+                resultats.append({
+                    'offre_id': offre.id,
+                    'titre': offre.titre,
+                    'organisme': offre.organisme,
+                    'pays': offre.pays,
+                    'domaine_detecte': match['domaine_detecte'],
+                    'date_cloture': offre.date_cloture,
+                    'match_direct': match['match_direct'],
+                    'match_keywords': match['match_keywords'],
+                })
+            
+            return Response({
+                'success': True,
+                'total': len(resultats),
+                'domaines_expert': profil.domaines_competence,
+                'offres': resultats
+            })
+            
+        except ProfilExpert.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Profil expert non trouvé'
+            }, status=404)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+
+
+class ExpertTriggerNotificationView(APIView):
+    """
+    API pour déclencher manuellement les notifications
+    URL: POST /api/experts/trigger-notifications/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            profil = ProfilExpert.objects.get(utilisateur=request.user)
+            count = notifier_expert_nouvelles_offres(profil)
+            
+            return Response({
+                'success': True,
+                'notifications_creees': count,
+                'message': f'{count} notification(s) créée(s)'
+            })
+            
+        except ProfilExpert.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Profil expert non trouvé'
+            }, status=404)
+
+
+class DetectDomainesView(APIView):
+    """
+    API pour détecter les domaines dans un texte
+    URL: POST /api/detect-domaines/
+    """
+    permission_classes = [permissions.AllowAny]
+    
+    def post(self, request):
+        texte = request.data.get('texte', '')
+        if not texte:
+            return Response({
+                'success': False,
+                'error': 'Texte requis'
+            }, status=400)
+        
+        domaines = detecter_domaines_from_texte(texte)
+        
+        return Response({
+            'success': True,
+            'domaines_detectes': domaines,
+            'total': len(domaines)
+        })
+
+
+class ListeDomainesView(APIView):
+    """
+    API pour lister tous les domaines disponibles
+    URL: GET /api/domaines/
+    """
+    permission_classes = [permissions.AllowAny]
+    
+    def get(self, request):
+        domaines_list = []
+        for domaine, keywords in DOMAINES_KEYWORDS.items():
+            domaines_list.append({
+                'nom': domaine,
+                'nb_mots_cles': len(keywords),
+                'mots_cles': keywords[:10],  # Afficher les 10 premiers
+            })
+        
+        return Response({
+            'success': True,
+            'total': len(domaines_list),
+            'domaines': domaines_list
+        })
+
+
+
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def password_reset_request(request):
+    """
+    Étape 1 : Demande de réinitialisation par email
+    POST /password-reset/
+    Body: { "email": "user@example.com" }
+    """
+    email = request.data.get('email', '').strip().lower()
+    
+    if not email:
+        return Response({'error': 'Email requis'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        user = Utilisateur.objects.get(email=email)
+        
+        # Invalider les anciens tokens
+        PasswordResetToken.objects.filter(user=user, used=False).update(used=True)
+        
+        # Créer un nouveau token (valide 1 heure)
+        reset_token = PasswordResetToken.objects.create(
+            user=user,
+            expires_at=timezone.now() + timedelta(hours=1)
+        )
+        
+        # ✅ URL DU FRONTEND - Utilise FRONTEND_URL de settings.py
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+        reset_link = f"{frontend_url}/reset-password?token={reset_token.token}"
+        
+        # ✅ Envoi de l'email
+        try:
+            from django.core.mail import send_mail
+            
+            subject = "Réinitialisation de votre mot de passe - Expertise-ID"
+            message = f"""Bonjour {user.first_name or user.email},
+
+Vous avez demandé une réinitialisation de votre mot de passe.
+
+Cliquez sur le lien ci-dessous pour définir un nouveau mot de passe :
+
+{reset_link}
+
+Ce lien expirera dans 1 heure.
+
+Si vous n'avez pas fait cette demande, ignorez cet email.
+
+Cordialement,
+L'équipe Expertise-ID
+"""
+            
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email],
+                fail_silently=False,
+            )
+            
+            print(f"✅ Email envoyé à {user.email} avec le lien: {reset_link}")
+            
+        except Exception as email_error:
+            print(f" Erreur envoi email: {email_error}")
+            return Response({'error': 'Erreur lors de l\'envoi de l\'email'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            'message': 'Si cet email est associé à un compte, vous recevrez un lien de réinitialisation.'
+        }, status=status.HTTP_200_OK)
+        
+    except Utilisateur.DoesNotExist:
+        # Sécurité : ne pas révéler si l'email existe
+        return Response({
+            'message': 'Si cet email est associé à un compte, vous recevrez un lien de réinitialisation.'
+        }, status=status.HTTP_200_OK)

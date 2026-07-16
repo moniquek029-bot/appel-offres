@@ -5,6 +5,13 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from offres.views import (
+    ExpertMatchingView,
+    ExpertTriggerNotificationView,
+    DetectDomainesView,
+    ListeDomainesView,
+)
+
+from offres.views import (
     # Auth
     RegisterView,
     CustomTokenObtainPairView,
@@ -129,9 +136,26 @@ urlpatterns = [
     path('api/profile/', UserProfileView.as_view(), name='user-profile'),
     path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
     
-    # ... reste du fichier inchangé ...urlpatterns = [
-    # Django admin
-    path('admin/', admin.site.urls),
+    # =========================================================================
+    # AUTHENTIFICATION (avec alias pour compatibilité frontend)
+    # =========================================================================
+    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/register/', RegisterView.as_view(), name='auth-register'),  # ✅ ALIAS
+    
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='auth-login'),  # ✅ ALIAS
+    
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='auth-refresh'),  # ✅ ALIAS
+    
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth-logout'),  # ✅ ALIAS
+    
+    # =========================================================================
+    # PROFIL UTILISATEUR
+    # =========================================================================
+    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
     
     # =========================================================================
     # AUTHENTIFICATION (avec alias pour compatibilité frontend)
@@ -154,35 +178,6 @@ urlpatterns = [
     path('api/profile/', UserProfileView.as_view(), name='user-profile'),
     path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
     
-    # ... reste du fichier inchangé ...urlpatterns = [
-    # Django admin
-    path('admin/', admin.site.urls),
-    
-    # =========================================================================
-    # AUTHENTIFICATION (avec alias pour compatibilité frontend)
-    # =========================================================================
-    path('api/register/', RegisterView.as_view(), name='register'),
-    path('api/auth/register/', RegisterView.as_view(), name='auth-register'),  # ✅ ALIAS
-    
-    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='auth-login'),  # ✅ ALIAS
-    
-    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
-    path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='auth-refresh'),  # ✅ ALIAS
-    
-    path('api/logout/', LogoutView.as_view(), name='logout'),
-    path('api/auth/logout/', LogoutView.as_view(), name='auth-logout'),  # ✅ ALIAS
-    
-    # =========================================================================
-    # PROFIL UTILISATEUR
-    # =========================================================================
-    path('api/profile/', UserProfileView.as_view(), name='user-profile'),
-    path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
-    
-    # ... reste du fichier inchangé ...urlpatterns = [
-    # Django admin
-    path('admin/', admin.site.urls),
-    
     # =========================================================================
     # AUTHENTIFICATION (avec alias pour compatibilité frontend)
     # =========================================================================
@@ -227,10 +222,6 @@ urlpatterns = [
     path('api/profile/', UserProfileView.as_view(), name='user-profile'),
     path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
     
-    # ... reste du fichier inchangé ...urlpatterns = [
-    # Django admin
-    path('admin/', admin.site.urls),
-    
     # =========================================================================
     # AUTHENTIFICATION (avec alias pour compatibilité frontend)
     # =========================================================================
@@ -252,9 +243,6 @@ urlpatterns = [
     path('api/profile/', UserProfileView.as_view(), name='user-profile'),
     path('api/change-password/', ChangePasswordView.as_view(), name='change-password'),
     
-    # ... reste du fichier inchangé ...urlpatterns = [
-    # Django admin
-    path('admin/', admin.site.urls),
     
     # =========================================================================
     # AUTHENTIFICATION (avec alias pour compatibilité frontend)
@@ -295,6 +283,11 @@ urlpatterns = [
     path('api/offres-publiques/', OffresPubliquesView.as_view(), name='offres-publiques'),
     path('api/offres/<int:offre_id>/download/', TelechargerPDFView.as_view(), name='telecharger-pdf'),
     
+    path('api/experts/matching/', ExpertMatchingView.as_view(), name='expert-matching'),
+    path('api/experts/trigger-notifications/', ExpertTriggerNotificationView.as_view(), name='expert-trigger-notifications'),
+    path('api/detect-domaines/', DetectDomainesView.as_view(), name='detect-domaines'),
+    path('api/domaines/', ListeDomainesView.as_view(), name='liste-domaines'),
+
     # =========================================================================
     # ESPACE EXPERT
     # =========================================================================

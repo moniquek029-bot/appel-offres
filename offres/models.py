@@ -10,6 +10,10 @@ from django.utils import timezone
 from django.conf import settings  # ✅ AJOUTER CET IMPORT
 
 
+from cryptography.fernet import Fernet
+import base64
+import hashlib
+
 # =============================================================================
 # MODULE 1 : GESTION DES COMPTES ET AUTHENTIFICATION
 # =============================================================================
@@ -658,3 +662,124 @@ class PasswordResetToken(models.Model):
     def is_valid(self):
         """Vérifie si le token est encore valide"""
         return not self.used and self.expires_at > timezone.now()
+
+
+
+# offres/models.py (à ajouter à la fin du fichier)
+
+
+
+
+class SourceCredentials(models.Model):
+    """
+    Credentials chiffrés pour les sources protégées par authentification
+    """
+    AUTH_TYPE_CHOICES = [
+        ('FORM', 'Formulaire HTML'),
+        ('BASIC', 'Basic Auth'),
+        ('TOKEN', 'Token API'),
+        ('SELENIUM', 'Selenium (JavaScript)'),
+    ]
+    
+    source = models.OneToOneField(
+        'SourceScraping', 
+        on_delete=models.CASCADE, 
+        related_name='credentials'
+    )
+    username = models.CharField(max_length=200, help_text="Nom d'utilisateur ou email")
+    encrypted_password = models.TextField(help_text="Mot de passe chiffré")
+    login_url = models.URLField(
+        blank=True, 
+        help_text="URL de la page de connexion (ex: https://example.com/login)"
+    )
+    auth_type = models.CharField(
+        max_length=20,
+        choices=AUTH_TYPE_CHOICES,
+        default='FORM',
+        help_text="Type d'authentification utilisé par le site"
+    )
+    
+    # Champs spécifiques pour formulaires HTML
+    username_field = models.CharField(
+        max_length=100, 
+        default='username',
+        help_text="Nom du champ HTML pour le username (ex: 'email', 'username', 'login')"
+    )
+    password_field = models.CharField(
+        max_length=100, 
+        default='password',
+        help_text="Nom du champ HTML pour le password"
+    )
+    
+    # Champs spécifiques pour Selenium
+    username_selector = models.CharField(
+        max_length=200, 
+        blank=True,
+        help_text="Sélecteur CSS pour le champ username (ex: '#email', 'input[name=email]')"
+    )
+    password_selector = models.CharField(
+        max_length=200, 
+        blank=True,
+        help_text="Sélecteur CSS pour le champ password"
+    )
+    submit_selector = models.CharField(
+        max_length=200, 
+        blank=True,
+        help_text="Sélecteur CSS pour le bouton submit (ex: 'button[type=submit]')"
+    )
+    success_indicator = models.CharField(
+        max_length=200, 
+        blank=True,
+        help_text="Texte ou sélecteur qui confirme la connexion réussie (ex: 'logout', '.user-menu')"
+    )
+    
+    is_active = models.BooleanField(default=True)
+    last_login = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Identifiants source"
+        verbose_name_plural = "Identifiants sources"
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"Credentials pour {self.source.nom} ({self.get_auth_type_display()})"
+    
+    def _get_cipher(self):
+        """Récupère le cipher Fernet pour le chiffrement"""
+        # Utiliser une clé dérivée de SECRET_KEY
+        key = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
+        key_b64 = base64.urlsafe_b64encode(key)
+        return Fernet(key_b64)
+    
+    def set_password(self, password: str):
+        """Chiffre et stocke le mot de passe"""
+        cipher = self._get_cipher()
+        self.encrypted_password = cipher.encrypt(password.encode()).decode()
+    
+    def get_password(self) -> str:
+        """Déchiffre et retourne le mot de passe"""
+        if not self.encrypted_password:
+            return ""
+        try:
+            cipher = self._get_cipher()
+            return cipher.decrypt(self.encrypted_password.encode()).decode()
+        except Exception as e:
+            logger.error(f"Erreur déchiffrement mot de passe: {e}")
+            return ""
+    
+    def get_credentials(self) -> dict:
+        """Retourne tous les credentials sous forme de dictionnaire"""
+        return {
+            'username': self.username,
+            'password': self.get_password(),
+            'login_url': self.login_url,
+            'auth_type': self.auth_type,
+            'username_field': self.username_field,
+            'password_field': self.password_field,
+            'username_selector': self.username_selector,
+            'password_selector': self.password_selector,
+            'submit_selector': self.submit_selector,
+            'success_indicator': self.success_indicator,
+        }
