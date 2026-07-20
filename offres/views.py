@@ -613,11 +613,22 @@ class ProfilExpertViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['put', 'patch'], url_path='update-profile')
     def update_profile(self, request):
         try:
+            # ✅ CORRECTION : Utiliser get_or_create pour éviter les erreurs si le profil n'existe pas
             profile, created = ProfilExpert.objects.get_or_create(utilisateur=request.user)
-            serializer = self.get_serializer(profile, data=request.data, partial=(request.method == 'PATCH'))
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return Response({'message': 'Profil mis à jour avec succès', 'profile': serializer.data}, status=status.HTTP_200_OK)
+            
+            # ✅ Utiliser le serializer avec partial=True pour accepter les mises à jour partielles
+            serializer = self.get_serializer(profile, data=request.data, partial=True)
+            
+            if serializer.is_valid():
+                serializer.save()
+                return Response({
+                    'message': 'Profil mis à jour avec succès', 
+                    'profile': serializer.data
+                }, status=status.HTTP_200_OK)
+            else:
+                # Retourne les erreurs de validation précises au frontend
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                
         except Exception as e:
             return Response({'error': f'Erreur lors de la mise à jour: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -627,21 +638,21 @@ class ProfilExpertViewSet(viewsets.ModelViewSet):
             profile, created = ProfilExpert.objects.get_or_create(utilisateur=request.user)
             if 'cv_fichier' not in request.FILES:
                 return Response({'error': 'Fichier CV requis'}, status=status.HTTP_400_BAD_REQUEST)
+            
             profile.cv_fichier = request.FILES['cv_fichier']
             profile.save()
+            
             return Response({
                 'message': 'CV téléchargé avec succès.',
                 'cv_url': profile.cv_fichier.url if profile.cv_fichier else None,
-                'is_profile_complete': True
+                'is_profile_complete': bool(profile.domaines_competence and profile.cv_fichier)
             })
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-
 # =============================================================================
 # GESTION DES PROFILS - BUREAU
 # =============================================================================
-
 class BureauEtudeViewSet(viewsets.ModelViewSet):
     """Gestion du profil Bureau d'Étude - Accès Bureau uniquement"""
     serializer_class = BureauEtudeSerializer
@@ -656,31 +667,37 @@ class BureauEtudeViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         serializer.save(gestionnaire=self.request.user)
     
-    @action(detail=False, methods=['put'], url_path='update-profile')
+    @action(detail=False, methods=['put', 'patch'], url_path='update-profile')
     def update_profile(self, request):
         try:
-            bureau = request.user.bureauetude
+            # ✅ CORRECTION : Utiliser get_or_create au lieu de request.user.bureauetude
+            bureau, created = BureauEtude.objects.get_or_create(gestionnaire=request.user)
+            
             allowed_fields = ['nom_structure', 'pays', 'adresse', 'domaine_activite', 'email_contact', 'telephone', 'site_web']
             for field in allowed_fields:
                 if field in request.data:
                     setattr(bureau, field, request.data[field])
             bureau.save()
+            
             return Response({
                 'message': 'Profil mis à jour avec succès.',
                 'profile': BureauEtudeSerializer(bureau).data,
-                'is_profile_complete': getattr(bureau, 'profil_complet', lambda: True)()
+                'is_profile_complete': bool(bureau.nom_structure and bureau.email_contact and bureau.telephone)
             })
-        except BureauEtude.DoesNotExist:
-            return Response({'error': 'Profil bureau non trouvé'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': f'Erreur lors de la mise à jour: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['get'], url_path='my-profile')
     def my_profile(self, request):
         try:
-            bureau = request.user.bureauetude
-            return Response({'profile': BureauEtudeSerializer(bureau).data, 'is_complete': getattr(bureau, 'profil_complet', lambda: True)()})
-        except BureauEtude.DoesNotExist:
-            return Response({'error': 'Profil bureau non trouvé'}, status=status.HTTP_404_NOT_FOUND)
-
+            # ✅ CORRECTION : Utiliser get_or_create
+            bureau, created = BureauEtude.objects.get_or_create(gestionnaire=request.user)
+            return Response({
+                'profile': BureauEtudeSerializer(bureau).data, 
+                'is_complete': bool(bureau.nom_structure and bureau.email_contact and bureau.telephone)
+            })
+        except Exception as e:
+            return Response({'error': f'Erreur: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
 # =============================================================================
 # CRITÈRES DE RECHERCHE & NEWSLETTER

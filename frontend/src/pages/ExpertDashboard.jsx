@@ -82,7 +82,7 @@ const ExpertDashboard = () => {
       <div className="d-flex justify-content-between align-items-center flex-wrap mb-3">
         {/* Partie gauche - Bonjour + Profil */}
         <div>
-          <h1 className="h2 mb-1 fw-bold" style={{ color: '#2c2c94' }}>
+          <h1 className="h2 mb-1 fw-bold" style={{ color: '#1c1c9e' }}>
             Expert, <span className="text-primary">{nom}</span>
           </h1>
           
@@ -90,7 +90,7 @@ const ExpertDashboard = () => {
           <div className="d-flex align-items-center flex-wrap gap-2 mt-2">
             <div className="d-flex align-items-center">
               <i className="bi bi-person-check-fill text-primary me-1" style={{ fontSize: '0.8rem' }}></i>
-              <span className="small fw-semibold me-1" style={{ color: 'var(--gray-700)' }}>Profil :</span>
+              <span className="small fw-semibold me-1" style={{ color: '#1c1c9e' }}>Profil :</span>
               <span className={`badge ${hasCV ? 'bg-success' : 'bg-warning text-dark'} px-2 py-1 rounded-pill`}
                     style={{ fontWeight: '500', fontSize: '0.7rem' }}>
                 {hasCV ? 'Complet' : 'CV manquant'}
@@ -112,7 +112,7 @@ const ExpertDashboard = () => {
         
         {/* Partie droite - Boutons alignés à droite */}
         <div className="d-flex gap-2 mt-3 mt-sm-0">
-          {!hasCV && (
+          {/*{!hasCV && (
             <Link 
               to="/expert/profile" 
               className="btn btn-primary"
@@ -121,29 +121,28 @@ const ExpertDashboard = () => {
                 padding: '8px 20px',
                 fontWeight: '500',
                 fontSize: '0.85rem',
-                background: 'linear-gradient(135deg, #1E3A8A, #172554)',
+                background: '#1c1c9e',
                 border: 'none'
               }}
             >
               <i className="bi bi-cloud-upload me-2"></i>
               Ajouter mon CV
             </Link>
-          )}
+          )}*/}
           <Link 
             to="/expert/profile" 
-            className="btn btn-primary"
+            className="btn text-white fw-semibold rounded-pill px-3"
             style={{ 
-              borderRadius: '25px', 
-              padding: '8px 20px',
-              fontWeight: '500',
-              fontSize: '0.85rem',
-              background: 'linear-gradient(135deg, #303578, #a99053)',
-              border: 'none'
+              background: '#F59E0B', // 🟡 OR
+              border: 'none',
+              transition: 'background 0.2s ease'
             }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#D97706'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#F59E0B'}
           >
             <i className="bi bi-pencil-square me-2"></i>
             Modifier mon profil
-          </Link>
+        </Link>
         </div>
       </div>
 

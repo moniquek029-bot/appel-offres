@@ -85,7 +85,7 @@ const RegisterBureau = () => {
         adresse: formData.adresse || '',
       };
       
-      console.log('📤 Envoi des données:', userData);
+      console.log(' Envoi des données:', userData);
       
       const response = await api.post('/auth/register/', userData);
       console.log('✅ Réponse:', response.data);
@@ -642,7 +642,7 @@ const RegisterBureau = () => {
                           disabled={loading}
                           style={{ 
                             borderRadius: '8px',
-                            background: 'linear-gradient(135deg, #402a0a, #b09d0d)',
+                            background: 'linear-gradient(135deg, #1E3A8A, #172554)',
                             border: 'none',
                             color: 'white'
                           }}

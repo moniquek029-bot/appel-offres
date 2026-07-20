@@ -6,6 +6,7 @@ Package de parsers pour le scraping d'offres
 
 # ✅ Export explicite des classes disponibles
 from .smart_parser import SmartParser  # ← ADAPTE LE NOM DU FICHIER SI NÉCESSAIRE
+from .dgcmef_parser import DGCMEFParser
 
 # Si tu as d'autres parsers, ajoute-les ici :
 # from .unfpa_parser import UnfpaParser
@@ -13,6 +14,7 @@ from .smart_parser import SmartParser  # ← ADAPTE LE NOM DU FICHIER SI NÉCESS
 
 __all__ = [
     'SmartParser',
+    'DGCMEFParser',
     # 'UnfpaParser',
     # 'AgetibParser',
 ]

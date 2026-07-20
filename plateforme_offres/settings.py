@@ -61,6 +61,12 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(day_of_week=1, hour=8, minute=0),  # Lundi à 8h
     },
 
+
+    'cloture-automatique-offres-expirees': {
+        'task': 'offres.scraping.tasks.close_expired_offers_task', # Adaptez le chemin si le fichier est ailleurs
+        'schedule': 86400.0,  # S'exécute toutes les 24 heures (ou utilisez crontab(hour=0, minute=0))
+    },
+
      'daily-maintenance': {
         'task': 'offres.tasks.daily_maintenance',
         'schedule': crontab(hour=2, minute=0),  # Tous les jours à 2h

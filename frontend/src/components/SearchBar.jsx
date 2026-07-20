@@ -1,9 +1,22 @@
 // src/components/SearchBar.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // ✅ Ajout de useEffect
 
 const SearchBar = ({ onSearch }) => {
   const [keyword, setKeyword] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+
+  // ✅ EFFET DE RECHERCHE AUTOMATIQUE AVEC DEBOUNCE
+  useEffect(() => {
+    // Délai de 500ms avant de lancer la recherche (pour éviter trop d'appels)
+    const timer = setTimeout(() => {
+      if (typeof onSearch === 'function') {
+        onSearch(keyword);
+      }
+    }, 500); // 500ms de délai
+
+    // Nettoyer le timer si le composant se démonte ou si keyword change
+    return () => clearTimeout(timer);
+  }, [keyword, onSearch]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -24,7 +37,7 @@ const SearchBar = ({ onSearch }) => {
       className="py-4 shadow-sm"
       style={{
         background: 'linear-gradient(135deg, #F9FAFB 0%, #E5E7EB 100%)',
-        borderBottom: '3px solid #F59E0B'  // ✅ Bordure or comme accent
+        borderBottom: '3px solid #F59E0B'
       }}
     >
       <div className="container">
@@ -32,7 +45,7 @@ const SearchBar = ({ onSearch }) => {
         <div className="text-center mb-3">
           <h2 
             style={{
-              color: '#002147',  // ✅ Bleu marine
+              color: '#002147',
               fontWeight: '700',
               fontSize: '1.5rem',
               marginBottom: '0.25rem'
@@ -149,7 +162,7 @@ const SearchBar = ({ onSearch }) => {
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'linear-gradient(135deg, #1E3A8A 0%, #F59E0B 100%)';
                 e.currentTarget.style.transform = 'translateY(0)';
-S              }}
+              }}
             >
               <i className="bi bi-search" style={{ fontSize: '1rem' }}></i>
               <span>Rechercher</span>

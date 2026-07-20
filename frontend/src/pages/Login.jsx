@@ -57,7 +57,7 @@ const Login = () => {
             style={{
               width: '70px',
               height: '70px',
-              background: 'linear-gradient(135deg, #704803, #884a04)',
+              background: 'linear-gradient(135deg, #1E3A8A, #172554) ',              
               borderRadius: '50%',
               boxShadow: '0 4px 12px rgba(245, 158, 11, 0.4)'
             }}
@@ -175,7 +175,7 @@ const Login = () => {
               className="btn btn-primary btn-lg w-100 mb-4"
               disabled={loading}
               style={{
-                background: 'linear-gradient(135deg, #1E3A8A 0%, #04317b 100%)',
+                background: 'linear-gradient(135deg, #059669, #047857)', //
                 border: 'none',
                 padding: '12px',
                 fontWeight: '600',

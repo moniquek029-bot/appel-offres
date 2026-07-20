@@ -101,7 +101,9 @@ class SangoBidsParser(BaseScraper):
     
     def _enrichir_offre(self, candidate: dict) -> dict | None:
         """Enrichit une offre en extrayant les détails de la page cible"""
-        titre = candidate['titre']
+        # ✅ 1. Nettoyer le titre dès le début
+        titre_brut = candidate['titre']
+        titre = self._nettoyer_titre(titre_brut)
         url_source = candidate['url_source']
         
         detail_soup = self.fetch_page(url_source)
@@ -133,7 +135,6 @@ class SangoBidsParser(BaseScraper):
         if match_org:
             organisme = clean_text(match_org.group(1).strip())
         
-        # ✅ CORRECTION : Forcer le pays à BF pour ce site spécifique
         pays = 'BF'
         
         pdf_url = None
@@ -158,7 +159,7 @@ class SangoBidsParser(BaseScraper):
             return None
             
         return {
-            'titre': titre,
+            'titre': titre,  # ✅ Titre déjà nettoyé
             'organisme': organisme,
             'description': candidate.get('description', '')[:2000],
             'date_publication': date_pub,
@@ -171,3 +172,25 @@ class SangoBidsParser(BaseScraper):
             'type_offre': 'APPEL_D_OFFRES',
             'mode_acquisition': 'AUTO',
         }
+
+    def _nettoyer_titre(self, titre_brut):
+        """Nettoie les titres extraits de SangoBids"""
+        if not titre_brut:
+            return ""
+        
+        # 1. Supprimer les badges et préfixes
+        titre = re.sub(r'^(OPEN|Bientôt clos|Nouveau|OPENSanté|OPENÉducation|OPENBTP)\s*', '', titre_brut, flags=re.IGNORECASE)
+        
+        # 2. ✨ ASTUCE : Ajouter un espace avant les majuscules qui suivent une minuscule 
+        # (ex: "ÉnergieNational" devient "Énergie National")
+        titre = re.sub(r'([a-zà-ÿ])([A-ZÀ-Ÿ])', r'\1 \2', titre)
+        
+        # 3. Supprimer les informations de durée à la fin
+        titre = re.sub(r'\s*\d+\s*jour\(s\) restant\(s\).*$', '', titre, flags=re.IGNORECASE)
+        titre = re.sub(r'\s*Voir les détails\s*$', '', titre, flags=re.IGNORECASE)
+        
+        # 4. Nettoyer les espaces multiples et les tirets en trop
+        titre = re.sub(r'\s+', ' ', titre).strip()
+        titre = titre.replace('  ', ' ') # Double sécurité
+        
+        return titre

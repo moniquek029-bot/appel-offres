@@ -8,7 +8,7 @@ from django.core.files.base import ContentFile
 import logging
 import requests
 import time  
-
+import re 
 
 from offres.models import SourceScraping, AppelOffre
 from offres.scraping.parsers.Oxfam_parser import OxfamParser
@@ -58,27 +58,37 @@ from offres.scraping.parsers.uemoa_parser import UEMOAParser
 from offres.scraping.parsers.joffres_parser import JoffresParser
 from offres.scraping.parsers.abf_burkina_parser import ABFBurkinaScraper
 from offres.scraping.parsers.smart_parser import SmartParser
-from offres.scraping.parsers.afdb_parser import AfDBParser
 from offres.scraping.parsers.psimali_parser import PSIMaliParser
 from offres.scraping.parsers.jaoguinee_parser import JaoGuineeParser
+from offres.scraping.parsers.dgcmef_parser import DGCMEFParser
+from offres.scraping.parsers.tala_com_parser import TalaComParser
+from offres.scraping.parsers.afdb_parser import AfDBParser
+from offres.scraping.parsers.ungm_parser import UNGMParser
 
+# Assurez-vous qu'ils sont dans le __all__ si vous en avez un
 from offres.scraping.parsers.who_parser import WHOParser
 from offres.scraping.parsers.worldbank_parser import WorldBankParser
 from offres.scraping.parsers.enabel_parser import EnabelParser
 from offres.scraping.parsers.isdb_parser import ISDBParser
 from offres.scraping.parsers.marches_securises_parser import MarchesSecurisesParser
-from offres.scraping.parsers.talacom_parser import TalaComParser
-from offres.scraping.parsers.j360_parser import J360Parser
 from offres.scraping.parsers.sangobids_parser import SangoBidsParser
 # =============================================================================
 # REGISTRE DES PARSERS
 # =============================================================================
 PARSER_REGISTRY = {
+    
+    # === NOUVEAUX PARSERS ===
+    "tala-com.com": TalaComParser,
+    "www.tala-com.com": TalaComParser,
+    "afdb.org": AfDBParser,
+    "www.afdb.org": AfDBParser,
+    "ungm.org": UNGMParser,
+    "www.ungm.org": UNGMParser,
+    
     # === SITES INTERNATIONAUX ===
     "burkinafaso.unfpa.org": UNFPAParser,
     "www.unfpa.org": UNFPAParser,
     "procurement-notices.undp.org": UNDPParser,
-    "www.afdb.org": AfDBParser,
     "www.who.int": WHOParser,
     "www.worldbank.org": WorldBankParser,
     "www.psimali.ml": PSIMaliParser,
@@ -91,22 +101,18 @@ PARSER_REGISTRY = {
     "isdb.org": ISDBParser,
     "www.marches-securises.fr": MarchesSecurisesParser,
     "marches-securises.fr": MarchesSecurisesParser,
-    "www.tala-com.com": TalaComParser,
-    "tala-com.com": TalaComParser,
     # === SITES BURKINA FASO ===
     "www.agetib.net": AgetibParser,
     "www.sonabel.bf": SONABELParser,
     "www.abfburkina.org": ABFBurkinaScraper,
     "abfburkina.org": ABFBurkinaScraper,
     "burkinafaso.oxfam.org": OxfamParser,
-    "www.j360.info": J360Parser,
-    "j360.info": J360Parser,
     "bf.sangobids.com": SangoBidsParser,
     "sangobids.com": SangoBidsParser,
     # === SITES RÉGIONAUX ===
     "www.uemoa.int": UEMOAParser,
     "uemoa.int": UEMOAParser,
-    
+    'www.dgcmef.gov.bf': DGCMEFParser,
     # === SITES D'OFFRES INTERNATIONALES ===
     "www.joffres.net": JoffresParser,
 
@@ -132,10 +138,11 @@ TRUSTED_SOURCES = [
     'psimali.ml',
     "enabel.be",
     "isdb.org",
+    'ungm.org',
     "marches-securises.fr",
     "tala-com.com",
     'jaoguinee.com',
-    "j360.info",
+    'dgcmef.gov.bf',
     "sangobids.com",
 ]
 
@@ -250,7 +257,7 @@ def delete_expired_offres():
     logger.info("✅ Aucune offre à supprimer")
     return {"deleted": 0}
 
-    
+
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
 def run_scheduled_scraping_task(self, source_id=None):
     """Tâche Celery pour le scraping (PDF optionnel + Fallback intelligent + Validation des sites + Notifications)"""
@@ -457,6 +464,26 @@ def daily_scraping_and_verification():
         'verification_pays': is_valid
     }
 
+def nettoyer_titre(titre_brut):
+    """Nettoie les titres extraits (ex: SangoBids) pour les rendre lisibles"""
+    if not titre_brut:
+        return "Offre sans titre"
+    
+    # 1. Supprimer les préfixes indésirables
+    titre = re.sub(r'^(OPEN|Bientôt clos|Nouveau|Scrapé)\s*', '', titre_brut, flags=re.IGNORECASE)
+    
+    # 2. Supprimer les suffixes inutiles à la fin
+    titre = re.sub(r'\s*\d+\s*jour\(s\) restant\(s\).*$', '', titre, flags=re.IGNORECASE)
+    titre = re.sub(r'\s*Voir les détails\s*$', '', titre, flags=re.IGNORECASE)
+    titre = re.sub(r'\s*Travaux\s*$', '', titre, flags=re.IGNORECASE)
+    titre = re.sub(r'\s*Fournitures\s*$', '', titre, flags=re.IGNORECASE)
+    titre = re.sub(r'\s*Consulting?\s*$', '', titre, flags=re.IGNORECASE)
+    
+    # 3. Nettoyer les espaces multiples
+    titre = re.sub(r'\s+', ' ', titre).strip()
+    
+    return titre
+
 @transaction.atomic
 def save_offre_real(data: dict, source: SourceScraping, require_pdf: bool = False) -> str:
     """
@@ -645,33 +672,63 @@ def save_offre_real(data: dict, source: SourceScraping, require_pdf: bool = Fals
         url_tdr = url_source
         logger.info(f"🔗 Pas de PDF → url_tdr = url_source: {url_tdr[:60]}")
     
-    # =========================================================================
-    # ✅ SAUVEGARDE
+        # =========================================================================
+    # ✅ SAUVEGARDE AVEC VÉRIFICATION ANTI-DOUBLON
     # =========================================================================
     try:
-        offre = AppelOffre.objects.create(
-            titre=titre[:300],
-            organisme=organisme[:200],
-            description=description[:2000],
-            pays=pays,
-            domaine=domaine,
-            date_publication=date_pub,
-            date_cloture=date_clot,  # ✅ Peut être None
-            url_source=url_source,
-            url_tdr=url_tdr,  # ✅ url_source si pas de PDF
-            statut='Ouvert',
-            mode_acquisition='AUTO',
-            source_origine=source,
-            fichier_pdf=fichier_pdf,
-        )
+        # ✅ 1. Nettoyer le titre avant de l'enregistrer
+        titre = nettoyer_titre(titre)
         
-        cloture_info = f"Clôture: {date_clot}" if date_clot else "Clôture: None (vide)"
-        logger.info(f"✅ CRÉÉE: {titre[:40]}... | {pays} | {domaine} | {cloture_info}")
-        return 'created'
+        # ✅ 2. Vérifier si l'offre existe déjà par URL source
+        offre_existante = None
+        if url_source:
+            offre_existante = AppelOffre.objects.filter(url_source=url_source).first()
+        
+        if offre_existante:
+            # ✅ L'offre existe déjà : on la met à jour au lieu de créer un doublon
+            offre_existante.titre = titre[:300]
+            offre_existante.organisme = organisme[:200]
+            offre_existante.description = description[:2000]
+            offre_existante.pays = pays
+            offre_existante.domaine = domaine
+            offre_existante.date_publication = date_pub
+            offre_existante.date_cloture = date_clot
+            offre_existante.url_tdr = url_tdr
+            offre_existante.statut = 'Ouvert'
+            if fichier_pdf:
+                offre_existante.fichier_pdf = fichier_pdf
+            
+            offre_existante.save()
+            
+            cloture_info = f"Clôture: {date_clot}" if date_clot else "Clôture: None (vide)"
+            logger.info(f"🔄 MISE À JOUR: {titre[:40]}... | {pays} | {domaine} | {cloture_info}")
+            return 'updated'
+            
+        else:
+            # ✅ L'offre n'existe pas : on la crée
+            offre = AppelOffre.objects.create(
+                titre=titre[:300],
+                organisme=organisme[:200],
+                description=description[:2000],
+                pays=pays,
+                domaine=domaine,
+                date_publication=date_pub,
+                date_cloture=date_clot,
+                url_source=url_source,
+                url_tdr=url_tdr,
+                statut='Ouvert',
+                mode_acquisition='AUTO',
+                source_origine=source,
+                fichier_pdf=fichier_pdf,
+            )
+            
+            cloture_info = f"Clôture: {date_clot}" if date_clot else "Clôture: None (vide)"
+            logger.info(f"✅ CRÉÉE: {titre[:40]}... | {pays} | {domaine} | {cloture_info}")
+            return 'created'
+            
     except Exception as e:
-        logger.error(f"❌ Erreur création BDD: {e}")
+        logger.error(f"❌ Erreur sauvegarde BDD: {e}")
         return 'skipped'
-
 
 @shared_task
 def daily_archive_task():
@@ -810,3 +867,28 @@ def newsletter_hebdomadaire_task():
     
     logger.info(f"✅ Newsletter envoyée à {total_envois} abonnés ({nouvelles_offres.count()} offres)")
     return total_envois
+
+
+@shared_task
+def close_expired_offers_task():
+    """
+    Tâche quotidienne pour fermer automatiquement les offres dont la date de clôture est passée
+    """
+    today = timezone.now().date()
+    
+    # Trouver les offres encore "Ouvertes" mais dont la date est passée
+    offres_a_cloturer = AppelOffre.objects.filter(
+        statut='Ouvert',
+        date_cloture__lt=today
+    )
+    
+    count = offres_a_cloturer.count()
+    
+    if count > 0:
+        # Mettre à jour le statut
+        offres_a_cloturer.update(statut='Clôturé', est_expire=True)
+        logger.info(f"✅ {count} offres ont été automatiquement clôturées.")
+    else:
+        logger.info(" Aucune offre à clôturer aujourd'hui.")
+        
+    return count

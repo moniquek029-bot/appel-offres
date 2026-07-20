@@ -79,14 +79,14 @@ const BureauDashboard = () => {
             </div>
             <Link 
               to="/bureau/profile" 
-              className="btn btn-primary"
+              className="btn text-white fw-semibold rounded-pill px-4"
               style={{ 
-                borderRadius: '25px', 
-                padding: '8px 24px',
-                fontWeight: '500',
-                background: 'linear-gradient(135deg, #8a681e, #172554)',
-                border: 'none'
+                background: '#F59E0B', // 🟡 OR
+                border: 'none',
+                transition: 'background 0.2s ease'
               }}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#D97706'}
+              onMouseLeave={(e) => e.currentTarget.style.background = '#F59E0B'}
             >
               <i className="bi bi-pencil-square me-2"></i>
               Modifier mon profil
@@ -200,17 +200,19 @@ const BureauDashboard = () => {
             
             {/* Bouton Voir les offres */}
             <Link to="/offres" 
-                  className="btn btn-primary rounded-pill px-3 py-2"
-                  style={{ 
-                    fontWeight: '500',
-                    fontSize: '0.85rem',
-                    background: 'linear-gradient(135deg, #1E3A8A, #e2bb2e)',
-                    border: 'none'
-                  }}
-            >
-              <i className="bi bi-search me-2"></i>
-              Voir les offres disponibles
-            </Link>
+              className="btn text-white fw-semibold rounded-pill px-4"
+              style={{ 
+                background: 'linear-gradient(135deg, #059669, #047857)', // 🟢 VERT ÉMERAUDE
+                border: 'none',
+                boxShadow: '0 4px 6px rgba(5, 150, 105, 0.2)',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
+              onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+          >
+            <i className="bi bi-search me-2"></i>
+            Voir les offres disponibles
+          </Link>
           </div>
         </div>
       </div>

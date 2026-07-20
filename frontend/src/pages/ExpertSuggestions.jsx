@@ -4,7 +4,6 @@ import api from '../services/api';
 
 const ExpertSuggestions = () => {
   const [suggestions, setSuggestions] = useState([]);
-  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -37,7 +36,7 @@ const ExpertSuggestions = () => {
       
       const res = await api.get('/expert/suggestions/', { params });
       setSuggestions(res.data.suggestions || []);
-      setStats(res.data.stats || null);
+      // ✅ stats n'est plus utilisé
     } catch (err) {
       console.error('❌ Erreur suggestions:', err);
       setError('Impossible de charger les suggestions');
@@ -143,7 +142,7 @@ const ExpertSuggestions = () => {
       'EN_ATTENTE': '⏳ En attente',
       'CONSULTEE': '👁️ Consultée',
       'ACCEPTEE': '✅ Acceptée',
-      'REFUSEE': '❌ Refusée'
+      'REFUSEE': ' Refusée'
     };
     return (
       <span className={`badge ${styles[statut] || 'bg-secondary'}`} style={{ fontSize: '0.7rem' }}>
@@ -193,43 +192,7 @@ const ExpertSuggestions = () => {
         </div>
       </div>
 
-      {/* Statistiques */}
-      {stats && (
-        <div className="row g-2 mb-3">
-          <div className="col-6 col-md-3">
-            <div className="card border-0 shadow-sm bg-primary text-white">
-              <div className="card-body py-2 px-3 text-center">
-                <h4 className="mb-0 fw-bold">{stats.total}</h4>
-                <small>Total</small>
-              </div>
-            </div>
-          </div>
-          <div className="col-6 col-md-3">
-            <div className="card border-0 shadow-sm bg-warning text-dark">
-              <div className="card-body py-2 px-3 text-center">
-                <h4 className="mb-0 fw-bold">{stats.en_attente}</h4>
-                <small>En attente</small>
-              </div>
-            </div>
-          </div>
-          <div className="col-6 col-md-3">
-            <div className="card border-0 shadow-sm bg-success text-white">
-              <div className="card-body py-2 px-3 text-center">
-                <h4 className="mb-0 fw-bold">{stats.acceptees}</h4>
-                <small>Acceptées</small>
-              </div>
-            </div>
-          </div>
-          <div className="col-6 col-md-3">
-            <div className="card border-0 shadow-sm bg-danger text-white">
-              <div className="card-body py-2 px-3 text-center">
-                <h4 className="mb-0 fw-bold">{stats.refusees}</h4>
-                <small>Refusées</small>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ✅ STATISTIQUES SUPPRIMÉES */}
 
       {/* Filtres */}
       <div className="card mb-3">

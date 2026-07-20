@@ -555,6 +555,15 @@ def est_appel_offres(titre: str, description: str = "") -> bool:
         'software engineer', 'ingénieur logiciel',
         'developer', 'développeur', 'programmer',
         'procurement associate', 'procurement officer',
+        "atelier de démarrage",
+    "galerie d'images",
+    "communiqué de presse",
+    "a tenu ce",
+    "s'est achevée",
+    "mot du ministre",
+    "dernières nouvelles",
+    "imprimer",
+    "actualité"
     ]
 
     for mot in exclusions_emploi:

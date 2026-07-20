@@ -1,4 +1,3 @@
-// src/pages/BureauProfile.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
@@ -34,9 +33,10 @@ const BureauProfile = () => {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const response = await api.get('/bureau/profil/');
-        const data = response.data.results?.[0] || response.data;
-        if (data && data.id) {
+        const response = await api.get('/bureau/profil/my-profile/');
+        const data = response.data.profile;
+      
+        if (data) {
           setFormData({
             nom_structure: data.nom_structure || '',
             pays: data.pays || 'BF',
@@ -48,7 +48,8 @@ const BureauProfile = () => {
           });
         }
       } catch (err) {
-        console.error('Erreur chargement profil:', err);
+        console.error('❌ Erreur chargement profil:', err.response?.data || err.message);
+        setError('Impossible de charger le profil.');
       } finally {
         setLoading(false);
       }
@@ -56,6 +57,7 @@ const BureauProfile = () => {
     fetchProfile();
   }, []);
 
+  // ✅ AJOUTÉ : Fonction manquante pour gérer les changements dans les champs
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
@@ -67,26 +69,34 @@ const BureauProfile = () => {
     setSuccess(null);
 
     try {
-      // Envoyer à l'API
       const response = await api.put('/bureau/profil/update/', formData);
-      
-      // Sauvegarder dans localStorage pour compatibilité
-      localStorage.setItem('bureau_profile', JSON.stringify(formData));
-      const isComplete = formData.nom_structure && formData.email_contact && formData.telephone;
+    
+      // Sauvegarder dans localStorage pour le dashboard
+      localStorage.setItem('bureau_profile', JSON.stringify(response.data.profile));
+      const isComplete = response.data.profile.nom_structure && response.data.profile.email_contact && response.data.profile.telephone;
       localStorage.setItem('bureau_profile_complete', isComplete ? 'true' : 'false');
-      
+    
       // Notifier le dashboard
       window.dispatchEvent(new Event('profileUpdated'));
-      
-      setSuccess('Profil enregistré avec succès !');
-      
+    
+      setSuccess('✅ Profil enregistré avec succès !');
+    
       setTimeout(() => {
         navigate('/bureau/dashboard');
       }, 1500);
-      
+    
     } catch (err) {
-      console.error('Erreur:', err);
-      setError(err.response?.data?.error || 'Erreur lors de l\'enregistrement');
+      console.error('❌ Erreur sauvegarde:', err.response?.data || err.message);
+    
+      const errors = err.response?.data;
+      if (typeof errors === 'object') {
+        const errorMessages = Object.entries(errors)
+          .map(([field, messages]) => `${field}: ${Array.isArray(messages) ? messages.join(', ') : messages}`)
+          .join(' | ');
+        setError(`Erreur de validation: ${errorMessages}`);
+      } else {
+        setError(errors?.error || 'Erreur lors de l\'enregistrement');
+      }
       setSaving(false);
     }
   };
@@ -106,7 +116,6 @@ const BureauProfile = () => {
       <div className="row justify-content-center">
         <div className="col-lg-8">
           
-          {/* Fil d'Ariane */}
           <nav aria-label="breadcrumb" className="mb-4">
             <ol className="breadcrumb">
               <li className="breadcrumb-item">
@@ -116,7 +125,6 @@ const BureauProfile = () => {
             </ol>
           </nav>
 
-          {/* Carte principale */}
           <div className="card border-0 shadow-sm rounded-4">
             <div className="card-header bg-white border-0 pt-4 pb-0">
               <h4 className="mb-1 fw-bold">
@@ -129,8 +137,6 @@ const BureauProfile = () => {
             </div>
             
             <div className="card-body p-4">
-              
-              {/* Alertes */}
               {error && (
                 <div className="alert alert-danger alert-dismissible fade show" role="alert">
                   <i className="bi bi-exclamation-triangle-fill me-2"></i>
@@ -146,9 +152,7 @@ const BureauProfile = () => {
                 </div>
               )}
 
-              {/* Formulaire */}
               <form onSubmit={handleSubmit}>
-                
                 <div className="mb-3">
                   <label className="form-label fw-semibold">
                     Nom de la structure <span className="text-danger">*</span>
@@ -296,19 +300,21 @@ const BureauProfile = () => {
                 <div className="d-flex gap-3">
                   <button 
                     type="submit" 
-                    className="btn btn-primary px-4 rounded-pill"
+                    className="btn text-white fw-semibold px-4 rounded-pill"
                     disabled={saving}
+                    style={{ 
+                      background: 'linear-gradient(135deg, #059669, #047857)', // 🟢 VERT ÉMERAUDE
+                      border: 'none',
+                      boxShadow: '0 4px 6px rgba(5, 150, 105, 0.2)',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => !saving && (e.currentTarget.style.transform = 'translateY(-1px)')}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
                   >
                     {saving ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                        Enregistrement...
-                      </>
+                      <><span className="spinner-border spinner-border-sm me-2" role="status"></span>Enregistrement...</>
                     ) : (
-                      <>
-                        <i className="bi bi-check-lg me-2"></i>
-                        Enregistrer les modifications
-                      </>
+                      <><i className="bi bi-check-circle me-2"></i>Enregistrer les modifications</>
                     )}
                   </button>
                   <Link to="/bureau/dashboard" className="btn btn-outline-secondary rounded-pill px-4">
@@ -322,7 +328,6 @@ const BureauProfile = () => {
                     Tous les champs marqués d'un <span className="text-danger">*</span> sont obligatoires.
                   </small>
                 </div>
-
               </form>
             </div>
           </div>

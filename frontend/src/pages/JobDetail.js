@@ -1,7 +1,6 @@
-// src/pages/JobDetail.jsx - Version finale avec toutes les améliorations
+// src/pages/JobDetail.jsx - Version épurée
 // ✅ Logique intelligente TDR/Redirection
 // ✅ Gestion des dates de clôture vides
-// ✅ Badges informatifs dynamiques
 // ✅ Persistance des filtres via l'historique du navigateur
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
@@ -57,7 +56,7 @@ const JobDetail = () => {
     });
   };
 
-  // ✅ Calcul des jours restants (nouvelle fonction)
+  // ✅ Calcul des jours restants
   const getJoursRestants = (dateStr) => {
     if (!dateStr) return null;
     const d = new Date(dateStr);
@@ -158,19 +157,6 @@ const JobDetail = () => {
     }
   };
 
-  // ✅ Déterminer le statut de l'offre (pour badge)
-  const getStatutOffre = () => {
-    if (!offre?.date_cloture) return { label: 'Date non précisée', color: 'bg-warning text-dark' };
-    
-    const jours = getJoursRestants(offre.date_cloture);
-    if (jours === null) return { label: 'Date invalide', color: 'bg-secondary' };
-    if (jours < 0) return { label: 'Expirée', color: 'bg-secondary' };
-    if (jours === 0) return { label: 'Clôture aujourd\'hui', color: 'bg-danger' };
-    if (jours <= 7) return { label: `${jours}j restants`, color: 'bg-danger' };
-    if (jours <= 30) return { label: `${jours}j restants`, color: 'bg-warning text-dark' };
-    return { label: `${jours}j restants`, color: 'bg-success' };
-  };
-
   if (loading) {
     return (
       <div className="container py-5 text-center">
@@ -198,8 +184,6 @@ const JobDetail = () => {
 
   const docInfo = getDocumentInfo();
   const hasDocument = !!docInfo;
-  const isAdmin = user?.role === 'ADMIN';
-  const statutOffre = getStatutOffre();
 
   return (
     <div className="container py-4">
@@ -219,37 +203,6 @@ const JobDetail = () => {
         </div>
         
         <div className="card-body">
-          {/* ✅ BADGES D'INFORMATION */}
-          <div className="mb-3 d-flex flex-wrap gap-2">
-            {/* Badge pays */}
-            <span className="badge bg-info">
-              <i className="bi bi-globe-americas me-1"></i>
-              {offre.pays === 'BF' ? '🇧🇫 Burkina Faso' : offre.pays}
-            </span>
-            
-            {/* Badge domaine */}
-            {offre.domaine && offre.domaine !== 'Autres' && (
-              <span className="badge bg-secondary">
-                <i className="bi bi-tag me-1"></i>
-                {offre.domaine}
-              </span>
-            )}
-            
-            {/* Badge statut/date de clôture */}
-            <span className={`badge ${statutOffre.color}`}>
-              <i className="bi bi-calendar-x me-1"></i>
-              {statutOffre.label}
-            </span>
-            
-            {/* Badge type de document */}
-            {docInfo && (
-              <span className={`badge ${docInfo.isPdf ? 'bg-success' : 'bg-primary'}`}>
-                <i className={`bi ${docInfo.isPdf ? 'bi-file-earmark-pdf' : 'bi-box-arrow-up-right'} me-1`}></i>
-                {docInfo.isPdf ? 'PDF disponible' : 'Redirection site source'}
-              </span>
-            )}
-          </div>
-          
           {/* Infos générales */}
           <div className="row mb-4">
             <div className="col-md-6">
@@ -349,10 +302,10 @@ const JobDetail = () => {
                           display: 'inline-flex', 
                           alignItems: 'center', 
                           gap: '8px', 
-                          background: docInfo.color, 
+                          background: '#cc8203', 
                           border: 'none', 
                           color: 'white', 
-                          boxShadow: '0 2px 8px rgba(2, 33, 134, 0.15)' 
+                          boxShadow: '0 2px 8px rgba(171, 160, 6, 0.15)' 
                         }}
                       >
                         <i className={`bi ${docInfo.icon} me-1`}></i>
@@ -399,7 +352,7 @@ const JobDetail = () => {
                     )}
                   </div>
                   
-                  {/* ✅ NOUVEAU : Information sur le type de document */}
+                  {/* Information sur le type de document */}
                   <div className="alert alert-light border d-flex align-items-center gap-2 mb-0">
                     <i className={`bi ${docInfo.isPdf ? 'bi-file-earmark-check-fill text-success' : 'bi-box-arrow-up-right text-primary'}`}></i>
                     <small className="text-muted">
@@ -409,9 +362,9 @@ const JobDetail = () => {
                 </div>
               ) : (
                 <div className="alert alert-info d-flex flex-column gap-2">
-                  <p className="mb-0">
+                  {/*<p className="mb-0">
                     <strong>🔒 Connexion requise</strong>
-                  </p>
+                  </p>*/}
                   <p className="mb-0 text-muted">
                     <i className="bi bi-info-circle-fill me-1"></i>
                     Veuillez vous connecter pour accéder au document de cette offre.
@@ -435,40 +388,6 @@ const JobDetail = () => {
             )}
           </div>
           
-          {/* ✅ NOUVEAU : Section métadonnées supplémentaires */}
-          <hr />
-          <div className="row small text-muted">
-            <div className="col-md-6">
-              <p className="mb-1">
-                <i className="bi bi-clock me-1"></i>
-                <strong>Source :</strong>{' '}
-                {offre.source_origine?.nom || 'Non précisée'}
-              </p>
-            </div>
-            <div className="col-md-6">
-              <p className="mb-1">
-                <i className="bi bi-robot me-1"></i>
-                <strong>Mode d'acquisition :</strong>{' '}
-                {offre.mode_acquisition === 'AUTO' ? 'Automatique (scraping)' : 'Manuel'}
-              </p>
-            </div>
-            {offre.url_source && (
-              <div className="col-12 mt-2">
-                <p className="mb-0 text-truncate">
-                  <i className="bi bi-link-45deg me-1"></i>
-                  <strong>URL source :</strong>{' '}
-                  <a 
-                    href={offre.url_source} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-primary"
-                  >
-                    {offre.url_source}
-                  </a>
-                </p>
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>

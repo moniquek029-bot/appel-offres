@@ -363,3 +363,5 @@ def notifier_tous_les_bureaux():
     
     logger.info(f"✅ {total_notifications} notifications envoyées à {bureaux.count()} bureaux")
     return total_notifications
+
+
