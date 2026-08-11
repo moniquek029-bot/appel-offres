@@ -166,7 +166,7 @@ const NotificationBell = ({ enabled = true }) => {
             {/* Header avec croix de fermeture */}
             <div className="d-flex justify-content-between align-items-center p-3 border-bottom"
                  style={{ 
-                   background: 'linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%)',
+                   background: '#020e93',
                    color: 'white',
                    borderTopLeftRadius: '8px',
                    borderTopRightRadius: '8px'

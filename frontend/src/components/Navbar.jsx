@@ -173,7 +173,7 @@ const Navbar = () => {
                   <div style={{
                     width: '32px',
                     height: '32px',
-                    background: 'linear-gradient(135deg, #F59E0B, #D97706)',
+                    background: '#F59E0B',
                     borderRadius: '50%',
                     display: 'flex',
                     alignItems: 'center',
@@ -209,7 +209,7 @@ const Navbar = () => {
                     <div 
                       className="p-3"
                       style={{ 
-                        background: 'linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%)',
+                        background: '#116efa',
                         color: 'white'
                       }}
                     >
@@ -248,7 +248,7 @@ const Navbar = () => {
                         className="dropdown-item d-flex align-items-center gap-2 py-2"
                         onClick={() => setProfileDropdownOpen(false)}
                         style={{ 
-                          color: '#1F2937',
+                          color: '#1f2937',
                           transition: 'all 0.2s'
                         }}
                         onMouseEnter={(e) => {
