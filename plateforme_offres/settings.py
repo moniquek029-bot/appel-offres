@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+    'storages',  
 ]
 
 # Configuration Celery + Redis
@@ -128,8 +129,8 @@ DATABASES = {
 
 AUTH_USER_MODEL = 'offres.Utilisateur'
 
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+#MEDIA_URL = '/media/'
+#MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
@@ -153,6 +154,36 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # =============================================================================
+# STOCKAGE CLOUD (Cloudflare R2) - Pour les PDF et fichiers uploadés
+# =============================================================================
+# Ces variables seront lues depuis votre fichier .env ou les variables de Render
+AWS_ACCESS_KEY_ID = os.getenv('R2_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('R2_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = os.getenv('R2_BUCKET_NAME', 'appels-offres-media')
+AWS_S3_ENDPOINT_URL = os.getenv('R2_ENDPOINT_URL') # ex: https://votre_id_compte.r2.cloudflarestorage.com
+AWS_S3_REGION_NAME = 'auto' # Cloudflare gère la région automatiquement
+
+# Rendre les fichiers accessibles publiquement (pour le téléchargement des PDF)
+AWS_DEFAULT_ACL = 'public-read'
+AWS_QUERYSTRING_AUTH = False
+
+# Domaine public personnalisé (optionnel mais recommandé pour des URLs propres)
+AWS_S3_CUSTOM_DOMAIN = os.getenv('R2_PUBLIC_DOMAIN') # ex: pub-xxxx.r2.dev
+
+# Dire à Django d'utiliser le cloud pour TOUS les fichiers (FieldFile)
+DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+
+# Configuration de l'URL MEDIA
+if AWS_S3_CUSTOM_DOMAIN:
+    MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/'
+else:
+    MEDIA_URL = f'{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/'
+
+# On garde MEDIA_ROOT commenté car il ne sera plus utilisé en production, 
+# mais il peut servir en local si les variables d'environnement sont vides.
+# MEDIA_ROOT = os.path.join(BASE_DIR, 'media') 
+
+# =============================================================================
 # CONFIGURATION EMAIL - SENDGRID
 # =============================================================================
 # Remplacez la ligne EMAIL_BACKEND par celle-ci :
@@ -170,7 +201,7 @@ DEFAULT_FROM_EMAIL = 'Plateforme Offre <moniquek029@gmail.com>'
 # =============================================================================
 # CONFIGURATION EMAIL - SENDGRID
 # =============================================================================
-#load_dotenv()
+load_dotenv()
 
 #EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 #EMAIL_HOST = 'smtp.sendgrid.net'
@@ -219,6 +250,8 @@ CORS_ALLOW_HEADERS = [
 # STATIC FILES
 # =============================================================================
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 STATICFILES_DIRS = (
     os.path.join(BASE_DIR, 'static'),
