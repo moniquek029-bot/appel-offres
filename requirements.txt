@@ -19,6 +19,7 @@ cloudscraper==1.2.71
 colorama==0.4.6
 cron_descriptor==2.1.0
 cryptography==49.0.0
+dj-database-url==3.1.2
 Django==4.2.30
 django-celery-beat==2.7.0
 django-celery-results==2.5.1
@@ -47,6 +48,7 @@ pdfminer.six==20260107
 pdfplumber==0.11.10
 pillow==12.3.0
 prompt_toolkit==3.0.52
+psycopg2-binary==2.9.12
 pycparser==3.0
 PyJWT==2.13.0
 PyMySQL==1.2.0

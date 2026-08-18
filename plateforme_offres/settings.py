@@ -4,7 +4,7 @@ from pathlib import Path
 import django.db.backends.mysql.base
 from celery.schedules import crontab
 from dotenv import load_dotenv
-import pymysql
+import dj_database_url
 pymysql.install_as_MySQLdb()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -109,20 +109,31 @@ WSGI_APPLICATION = 'plateforme_offres.wsgi.application'
 # =============================================================================
 # BASE DE DONNÉES - ✅ CORRIGÉ
 # =============================================================================
+# =============================================================================
+# BASE DE DONNÉES (Dynamique : PostgreSQL sur Render, MySQL en local)
+# =============================================================================
 DATABASES = {
-    'default': {
+    'default': dj_database_url.config(
+        default=os.getenv('DATABASE_URL'),
+        conn_max_age=600,
+        ssl_require=True  # Obligatoire pour les bases de données Render
+    )
+}
+
+# Si DATABASE_URL est vide (développement local), on utilise MySQL
+if not os.getenv('DATABASE_URL'):
+    DATABASES['default'] = {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'plateforme_offres',
-        'USER': 'root',
-        'PASSWORD': '',
-        'HOST': 'localhost',
-        'PORT': '3306',
+        'NAME': os.getenv('DB_NAME', 'plateforme_offres'),
+        'USER': os.getenv('DB_USER', 'root'),
+        'PASSWORD': os.getenv('DB_PASSWORD', ''),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '3306'),
         'OPTIONS': {
             'charset': 'utf8mb4',
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
         },
     }
-}
 
 # ✅ Forcer Django à accepter MariaDB 10.4
 #django.db.backends.mysql.base.DatabaseWrapper.check_database_version_supported = lambda self: None
