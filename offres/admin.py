@@ -6,6 +6,7 @@ from django.utils.html import format_html
 from offres.scraping.tasks import run_scheduled_scraping_task  # Import direct pour l'action admin 
 from django.contrib.auth.admin import UserAdmin
 from django.urls import path
+
 from django.shortcuts import redirect
 from django.contrib import messages
 from django.http import HttpResponseRedirect
@@ -207,12 +208,50 @@ class AppelOffreAdmin(admin.ModelAdmin):
 # SOURCES DE SCRAPING - AVEC BOUTON "LANCER" ET INLINE CREDENTIALS
 # =============================================================================
 
+
+
+# =============================================================================
+# SOURCES DE SCRAPING - AVEC ACTION SYNCHRONE ET INLINE CREDENTIALS
+# =============================================================================
+
+# 1. On définit D'ABORD la fonction d'action (pour qu'elle existe avant la classe)
+@admin.action(description='🚀 Lancer le scraping pour les sources sélectionnées')
+def lancer_scraping_manuel(modeladmin, request, queryset):
+    total_new = 0
+    total_updated = 0
+    erreurs = 0
+
+    for source in queryset:
+        try:
+            # .apply() exécute la tâche de manière SYNCHRONE (localement), 
+            # contournant totalement le besoin de Redis/Celery !
+            resultat = run_scheduled_scraping_task.apply(kwargs={'source_id': source.id}).get()
+            
+            if isinstance(resultat, dict):
+                total_new += resultat.get('new', 0)
+                total_updated += resultat.get('updated', 0)
+                
+        except Exception as e:
+            erreurs += 1
+            modeladmin.message_user(request, f"❌ Erreur sur '{source.nom}': {str(e)}", messages.ERROR)
+
+    modeladmin.message_user(
+        request,
+        f"✅ Scraping terminé ! {total_new} nouvelles offres, {total_updated} mises à jour. ({erreurs} erreurs)",
+        messages.SUCCESS
+    )
+
+
+# 2. Ensuite, on définit la classe Admin qui utilise cette fonction
 @admin.register(SourceScraping)
 class SourceScrapingAdmin(admin.ModelAdmin):
     list_display = ['nom', 'url_racine', 'pays', 'parser', 'use_js', 'delay', 'est_actif', 'last_scraped', 'scrape_button']
     list_filter = ['est_actif', 'pays', 'parser']
     search_fields = ['nom', 'url_racine']
     list_editable = ['est_actif', 'delay', 'use_js']
+    
+    # ✅ On référence la fonction d'action définie juste au-dessus
+    actions = [lancer_scraping_manuel]
     
     fieldsets = (
         ('Informations générales', {
@@ -227,7 +266,7 @@ class SourceScrapingAdmin(admin.ModelAdmin):
         }),
     )
     
-    # ✅ Inline des credentials (défini plus haut dans le fichier)
+    # ✅ Inline des credentials
     inlines = [SourceCredentialsInline]
     
     readonly_fields = ['last_scraped', 'created_at', 'updated_at']
@@ -240,34 +279,15 @@ class SourceScrapingAdmin(admin.ModelAdmin):
             url
         )
     scrape_button.short_description = 'Scraping'
-    scrape_button.allow_tags = True
     
     def get_urls(self):
-        """Ajouter des URLs personnalisées"""
+        """Ajouter des URLs personnalisées pour les boutons individuels"""
         urls = super().get_urls()
         custom_urls = [
             path('run-scraping/<int:source_id>/', self.admin_site.admin_view(run_scraping_view), name='run_scraping'),
             path('run-scraping-all/', self.admin_site.admin_view(run_scraping_all_view), name='run_scraping_all'),
         ]
         return custom_urls + urls
-    
-    actions = ['run_scraping_action']
-    
-    def run_scraping_action(self, request, queryset):
-        """Action pour lancer le scraping sur plusieurs sources sélectionnées"""
-        try:
-            total_new = 0
-            total_updated = 0
-            for source in queryset.filter(est_actif=True):
-                result = run_scheduled_scraping_task(source_id=source.id)
-                total_new += result.get('new', 0)
-                total_updated += result.get('updated', 0)
-            self.message_user(request, f"✅ Scraping terminé sur {queryset.count()} sources ! {total_new} nouvelles offres, {total_updated} mises à jour.")
-        except Exception as e:
-            self.message_user(request, f"❌ Erreur: {str(e)}", level='ERROR')
-    run_scraping_action.short_description = "🚀 Lancer le scraping sur les sources sélectionnées"
-
-
 # =============================================================================
 # PROFIL EXPERT - LECTURE SEULE POUR L'ADMIN
 # =============================================================================
