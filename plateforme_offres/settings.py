@@ -244,7 +244,15 @@ USE_TZ = True
 # =============================================================================
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
+# Autoriser les domaines à accéder à l'API
+CORS_ALLOWED_ORIGINS = [
+    "https://appel-offres-deux.vercel.app",  # Votre URL Vercel
+    "http://localhost:5173",                 # Pour le dev local (Vite)
+    "http://localhost:3000",                 # Pour le dev local (Create React App)
+]
 
+# Et dans ALLOWED_HOSTS, assurez-vous d'avoir :
+ALLOWED_HOSTS = ['.onrender.com', '.vercel.app', 'localhost', '127.0.0.1']
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
